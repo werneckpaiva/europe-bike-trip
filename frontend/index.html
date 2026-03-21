@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Europe Bike Trip Route</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Google Fonts for premium typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <h2>Select Stops</h2>
+            <div class="selection-actions">
+                <button id="select-all" class="action-btn">Select All</button>
+                <button id="deselect-all" class="action-btn">Deselect All</button>
+            </div>
+            
+            <div class="add-city-container">
+                <input type="text" id="new-city-input" placeholder="Add new city...">
+                <button id="add-city-btn" class="action-btn">+</button>
+            </div>
+
+            <div id="city-selector" class="city-selector">
+                <!-- City items with drag/remove controls will be injected here -->
+            </div>
+        </aside>
+
+        <main class="content-area">
+            <header>
+                <h1>EuroVelo Adventure</h1>
+                <p>Tracking the journey across Europe</p>
+            </header>
+
+            <div id="overview-map" class="overview-map">
+                <!-- Overview map injected here -->
+            </div>
+
+            <div id="stats-bar" class="stats-bar">
+                <div class="stat-item">
+                    <span class="stat-label">Cycling Distance</span>
+                    <span id="total-distance" class="stat-value">0 km</span>
+                    <div id="distance-breakdown" class="stat-breakdown">
+                        <!-- Breakdown hidden -->
+                    </div>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Total Days</span>
+                    <span id="total-days" class="stat-value">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">Elevation Gain</span>
+                    <span id="total-elevation" class="stat-value">0 m</span>
+                </div>
+            </div>
+
+            <div id="route-container" class="route-container">
+                <!-- Route segments will be injected here by script.js -->
+            </div>
+        </main>
+    </div>
+
+    <footer>
+        <p>&copy; 2026 Bike Trip Journal</p>
+    </footer>
+
+    <!-- Use Maps JavaScript API for calculations with recommended async pattern -->
+    <script>
+      window.CONFIG = {
+          GOOGLE_MAPS_API_KEY: "AIzaSyAAG5kdjT5rB6c1drjH4n7DKpn0_ox8tDs"
+      };
+
+      (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Re-verting to legacy usage."):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({
+        key: window.CONFIG.GOOGLE_MAPS_API_KEY,
+        v: "weekly",
+      });
+    </script>
+    <script src="script.js"></script>
+</body>
+</html>
