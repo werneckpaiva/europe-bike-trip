@@ -25,8 +25,20 @@ async function loadData() {
     }
     
     // Fallback if no server data or error
-    cities = DEFAULT_CITIES.map(c => ({ name: c, transport: 'bike' }));
-    selectedCities = cities.map(c => c.name);
+    cities = [];
+    DEFAULT_CITIES.forEach((name, i) => {
+        cities.push({ name, transport: 'bike' });
+        // Add sleep after every city except the first one (start city)
+        // This makes every city hop a separate day
+        if (i > 0) {
+            cities.push({ 
+                name: `Sleep_${Date.now()}_${i}`, 
+                is_sleep: true, 
+                night_type: 'warmshowers' 
+            });
+        }
+    });
+    selectedCities = DEFAULT_CITIES;
 }
 
 function saveData() {
@@ -83,24 +95,44 @@ function initSidebar() {
         
         const label = document.createElement('span');
         label.className = 'city-label';
-        label.textContent = cityObj.name;
+        label.textContent = cityObj.is_sleep ? "💤 SLEEP" : cityObj.name;
         label.title = cityObj.name;
 
-        // Transport Selector
-        const transport = document.createElement('select');
-        transport.className = 'transport-select';
-        ['bike', 'ferry', 'train'].forEach(type => {
-            const opt = document.createElement('option');
-            opt.value = type;
-            opt.textContent = type;
-            if (cityObj.transport === type) opt.selected = true;
-            transport.appendChild(opt);
-        });
-        transport.addEventListener('change', (e) => {
-            cityObj.transport = e.target.value;
-            saveData();
-            renderAll();
-        });
+        // Transport Selector (only for cities)
+        if (!cityObj.is_sleep) {
+            const transport = document.createElement('select');
+            transport.className = 'transport-select';
+            ['bike', 'ferry', 'train'].forEach(type => {
+                const opt = document.createElement('option');
+                opt.value = type;
+                opt.textContent = type;
+                if (cityObj.transport === type) opt.selected = true;
+                transport.appendChild(opt);
+            });
+            transport.addEventListener('change', (e) => {
+                cityObj.transport = e.target.value;
+                saveData();
+                renderAll();
+            });
+            item.append(checkbox, label, transport);
+        } else {
+            item.classList.add('sleep-item');
+            const nightType = document.createElement('select');
+            nightType.className = 'night-type-select';
+            ['warmshowers', 'hotel', 'airbnb'].forEach(type => {
+                const opt = document.createElement('option');
+                opt.value = type;
+                opt.textContent = type;
+                if (cityObj.night_type === type) opt.selected = true;
+                nightType.appendChild(opt);
+            });
+            nightType.addEventListener('change', (e) => {
+                cityObj.night_type = e.target.value;
+                saveData();
+                renderAll();
+            });
+            item.append(label, nightType);
+        }
 
         const controls = document.createElement('div');
         controls.className = 'city-controls';
@@ -115,7 +147,7 @@ function initSidebar() {
         };
 
         controls.append(delBtn);
-        item.append(checkbox, label, transport, controls);
+        item.append(controls);
         citySelector.appendChild(item);
     });
 }
@@ -202,10 +234,21 @@ function addCity() {
     }
 }
 
+function addSleep() {
+    const id = Date.now();
+    const sleepMark = { name: `Sleep_${id}`, is_sleep: true, night_type: 'warmshowers' };
+    cities.push(sleepMark);
+    saveData();
+    initSidebar();
+    renderAll();
+}
+
 function removeCity(index) {
     const cityObj = cities[index];
     cities.splice(index, 1);
-    selectedCities = selectedCities.filter(name => name !== cityObj.name);
+    if (!cityObj.is_sleep) {
+        selectedCities = selectedCities.filter(name => name !== cityObj.name);
+    }
     saveData();
     initSidebar();
     renderAll();
@@ -220,7 +263,7 @@ async function renderAll() {
     let grandTotalElevation = 0;
     const totalsByTransport = { bike: 0, ferry: 0, train: 0 };
 
-    const activeRoute = cities.filter(c => selectedCities.includes(c.name));
+    const activeRoute = cities.filter(c => c.is_sleep || selectedCities.includes(c.name));
 
     if (activeRoute.length >= 2) {
         renderMultiModeOverview(activeRoute);
@@ -239,93 +282,141 @@ async function renderAll() {
         elevGain: 0
     };
 
-    for (let i = 0; i < activeRoute.length; i++) {
-        const cityObj = activeRoute[i];
+    let lastCityObj = null;
+    let initialCityShown = false;
+
+    // Helper to start a new day group
+    const startNewDay = (dayNum, nightType = null) => {
+        const group = document.createElement('div');
+        group.className = 'day-group';
         
-        // Start a new day group if it's the first city or if the transport to here was 'bike'
-        if (i === 0 || activeRoute[i-1].transport === 'bike') {
-            if (i > 0) currentDay++;
-            
-            currentDayGroup = document.createElement('div');
-            currentDayGroup.className = 'day-group';
-            
-            const header = document.createElement('div');
-            header.className = 'day-header';
-            
-            const label = document.createElement('span');
-            label.className = 'day-label';
-            label.textContent = `Day ${currentDay}`;
-            header.appendChild(label);
-            
-            const statsContainer = document.createElement('div');
-            statsContainer.className = 'day-stats';
-            
-            // Bike Distance
-            const distItem = document.createElement('div');
-            distItem.className = 'day-stat-item';
-            const dayBikeDistVal = document.createElement('span');
-            dayBikeDistVal.className = 'day-stat-value';
-            dayBikeDistVal.textContent = '0.0 km';
-            const distLabel = document.createElement('span');
-            distLabel.className = 'day-stat-label';
-            distLabel.textContent = 'Day Dist';
-            distItem.append(dayBikeDistVal, distLabel);
-            
-            // Elevation
-            const elevItem = document.createElement('div');
-            elevItem.className = 'day-stat-item';
-            const dayElevVal = document.createElement('span');
-            dayElevVal.className = 'day-stat-value';
-            dayElevVal.textContent = '0 m';
-            const elevLabel = document.createElement('span');
-            elevLabel.className = 'day-stat-label';
-            elevLabel.textContent = 'Elevation';
-            elevItem.append(dayElevVal, elevLabel);
-            
-            // Cumulative
-            const cumItem = document.createElement('div');
-            cumItem.className = 'day-stat-item';
-            const dayCumDistVal = document.createElement('span');
-            dayCumDistVal.className = 'cumulative-badge';
-            dayCumDistVal.textContent = `Total: ${(cumulativeBikeDistance / 1000).toFixed(1)} km`;
-            cumItem.append(dayCumDistVal);
+        const header = document.createElement('div');
+        header.className = 'day-header';
+        
+        const labelContainer = document.createElement('div');
+        labelContainer.style.display = 'flex';
+        labelContainer.style.alignItems = 'center';
+        labelContainer.style.gap = '0.5rem';
 
-            statsContainer.append(distItem, elevItem, cumItem);
-            header.appendChild(statsContainer);
-            currentDayGroup.appendChild(header);
-            routeContainer.appendChild(currentDayGroup);
+        const label = document.createElement('span');
+        label.className = 'day-label';
+        label.textContent = `Day ${dayNum}`;
+        
+        labelContainer.appendChild(label);
 
-            // Update activeDayStats to point to these new elements
-            activeDayStats = {
+        if (nightType) {
+            const emojiMap = {
+                'warmshowers': '🚿',
+                'hotel': '🏨',
+                'airbnb': '🏠'
+            };
+            const nightBadge = document.createElement('span');
+            nightBadge.className = 'night-type-badge';
+            nightBadge.textContent = `${emojiMap[nightType] || '💤'} ${nightType}`;
+            labelContainer.appendChild(nightBadge);
+        }
+
+        header.appendChild(labelContainer);
+        
+        const statsContainer = document.createElement('div');
+        statsContainer.className = 'day-stats';
+        
+        const distItem = document.createElement('div');
+        distItem.className = 'day-stat-item';
+        const dayBikeDistVal = document.createElement('span');
+        dayBikeDistVal.className = 'day-stat-value';
+        dayBikeDistVal.textContent = '0.0 km';
+        const distLabel = document.createElement('span');
+        distLabel.className = 'day-stat-label';
+        distLabel.textContent = 'Day Dist';
+        distItem.append(dayBikeDistVal, distLabel);
+        
+        const elevItem = document.createElement('div');
+        elevItem.className = 'day-stat-item';
+        const dayElevVal = document.createElement('span');
+        dayElevVal.className = 'day-stat-value';
+        dayElevVal.textContent = '0 m';
+        const elevLabel = document.createElement('span');
+        elevLabel.className = 'day-stat-label';
+        elevLabel.textContent = 'Elevation';
+        elevItem.append(dayElevVal, elevLabel);
+        
+        const cumItem = document.createElement('div');
+        cumItem.className = 'day-stat-item';
+        const dayCumDistVal = document.createElement('span');
+        dayCumDistVal.className = 'cumulative-badge';
+        dayCumDistVal.textContent = `Total: ${(cumulativeBikeDistance / 1000).toFixed(1)} km`;
+        cumItem.append(dayCumDistVal);
+
+        statsContainer.append(distItem, elevItem, cumItem);
+        header.appendChild(statsContainer);
+        group.appendChild(header);
+        routeContainer.appendChild(group);
+
+        return {
+            group,
+            stats: {
                 dist: dayBikeDistVal,
                 elev: dayElevVal,
                 cum: dayCumDistVal,
                 bikeDist: 0,
                 elevGain: 0
-            };
+            },
+            journeyShown: false
+        };
+    };
+
+    let dayData = startNewDay(currentDay);
+    currentDayGroup = dayData.group;
+    activeDayStats = dayData.stats;
+
+    let dayLegs = [];
+
+    for (let i = 0; i < activeRoute.length; i++) {
+        const item = activeRoute[i];
+        
+        if (item.is_sleep) {
+            if (dayLegs.length > 0) {
+                await renderDayMap(currentDayGroup, dayLegs);
+            }
+            dayLegs = [];
+            currentDay++;
+            dayData = startNewDay(currentDay, item.night_type);
+            currentDayGroup = dayData.group;
+            activeDayStats = dayData.stats;
+            continue;
         }
 
-        // City cards are now effectively handled as part of the segment title or final destination
-        // We'll only render the final destination city if it's the end of the route
-        if (i === activeRoute.length - 1) {
-            const cityCard = document.createElement('div');
-            cityCard.className = 'city-card final-destination';
-            const cityName = document.createElement('h2');
-            cityName.className = 'city-name';
-            cityName.textContent = `🏁 Final Destination: ${cityObj.name}`;
-            cityCard.appendChild(cityName);
-            currentDayGroup.appendChild(cityCard);
+        const cityObj = item;
+        
+        // Find the last city of THIS day to show exactly what this day covers
+        let dayEndCity = cityObj;
+        for (let j = i; j < activeRoute.length; j++) {
+            if (activeRoute[j].is_sleep) break;
+            if (!activeRoute[j].is_sleep) dayEndCity = activeRoute[j];
         }
 
-        if (i < activeRoute.length - 1) {
-            const nextCityObj = activeRoute[i + 1];
-            const transport = cityObj.transport || 'bike';
-            const result = await requestDirections(cityObj.name, nextCityObj.name, transport);
+        // Render card: "A to B" for each day
+        if (!dayData.journeyShown) {
+            const startCard = document.createElement('div');
+            startCard.className = 'city-card day-summary-card';
+            const startName = document.createElement('h2');
+            startName.className = 'city-name';
+            const fromCity = lastCityObj ? lastCityObj.name : cityObj.name;
+            startName.textContent = `${fromCity} ➔ ${dayEndCity.name}`;
+            startCard.appendChild(startName);
+            currentDayGroup.appendChild(startCard);
+            dayData.journeyShown = true;
+        }
+
+        if (lastCityObj) {
+            const transport = lastCityObj.transport || 'bike';
+            const result = await requestDirections(lastCityObj.name, cityObj.name, transport);
             
             if (result) {
                 const leg = result.routes[0].legs[0];
                 const distance = leg.distance.value;
-                totalsByTransport[transport] += distance;
+                totalsByTransport[transport] = (totalsByTransport[transport] || 0) + distance;
 
                 let elevationGain = 0;
                 if (transport !== 'train') {
@@ -347,17 +438,85 @@ async function renderAll() {
                 activeDayStats.elev.textContent = `${Math.round(activeDayStats.elevGain)} m`;
                 activeDayStats.cum.textContent = `Total: ${(cumulativeBikeDistance / 1000).toFixed(1)} km`;
 
-                renderMapSegment(currentDayGroup, { distance, elevationGain }, transport, cityObj.name, nextCityObj.name, cumulativeBikeDistance / 1000);
+                renderLegStats(currentDayGroup, { distance, elevationGain }, transport, lastCityObj.name, cityObj.name, cumulativeBikeDistance / 1000);
+                dayLegs.push({ result, transport });
             } else {
-                renderMapSegment(currentDayGroup, null, transport, cityObj.name, nextCityObj.name, cumulativeBikeDistance / 1000);
+                renderLegStats(currentDayGroup, null, transport, lastCityObj.name, cityObj.name, cumulativeBikeDistance / 1000);
             }
         }
+        
+        // Render final destination card only if it's the last selected city in the whole route
+        const lastSelectedCity = activeRoute.slice().reverse().find(c => !c.is_sleep);
+        if (cityObj === lastSelectedCity) {
+            const cityCard = document.createElement('div');
+            cityCard.className = 'city-card final-destination';
+            const cityName = document.createElement('h2');
+            cityName.className = 'city-name';
+            cityName.textContent = `🏁 Final Destination: ${cityObj.name}`;
+            cityCard.appendChild(cityName);
+            currentDayGroup.appendChild(cityCard);
+        }
+
+        lastCityObj = cityObj;
+    }
+
+    if (dayLegs.length > 0) {
+        await renderDayMap(currentDayGroup, dayLegs);
     }
 
     totalDistanceEl.textContent = `${(totalsByTransport.bike / 1000).toFixed(1)} km`;
     totalElevationEl.textContent = `${Math.round(grandTotalElevation)} m`;
     totalDaysEl.textContent = currentDay;
     distanceBreakdownEl.innerHTML = '';
+}
+
+async function renderDayMap(container, legs) {
+    const mapWidget = document.createElement('div');
+    mapWidget.className = 'map-widget day-map';
+    mapWidget.style.height = '400px';
+    container.appendChild(mapWidget);
+
+    // Maximize Button
+    const maxBtn = document.createElement('button');
+    maxBtn.className = 'maximize-btn';
+    maxBtn.innerHTML = '⛶';
+    maxBtn.onclick = () => toggleMaximize(mapWidget);
+    mapWidget.appendChild(maxBtn);
+
+    const { Map } = await google.maps.importLibrary("maps");
+    const map = new Map(mapWidget, {
+        zoom: 7,
+        mapTypeId: google.maps.MapTypeId.TERRAIN,
+        disableDefaultUI: true,
+        zoomControl: true,
+        scrollwheel: false
+    });
+
+    const bounds = new google.maps.LatLngBounds();
+
+    for (let i = 0; i < legs.length; i++) {
+        const leg = legs[i];
+        if (leg.result) {
+            new google.maps.DirectionsRenderer({
+                map: map,
+                directions: leg.result,
+                preserveViewport: true,
+                suppressMarkers: i > 0 && i < legs.length - 1,
+                polylineOptions: {
+                    strokeColor: leg.transport === 'train' ? '#94a3b8' : '#f43f5e',
+                    strokeOpacity: 0.8,
+                    strokeWeight: 5
+                }
+            });
+            const steps = leg.result.routes[0].legs[0];
+            bounds.extend(steps.start_location);
+            bounds.extend(steps.end_location);
+        }
+    }
+
+    if (!bounds.isEmpty()) {
+        map.fitBounds(bounds);
+    }
 }
 
 function renderMultiModeOverview(route) {
@@ -414,9 +573,10 @@ async function initMultiModeMap(container, route) {
 
     const bounds = new google.maps.LatLngBounds();
 
-    for (let i = 0; i < route.length - 1; i++) {
-        const start = route[i];
-        const end = route[i+1];
+    const overviewCities = route.filter(c => !c.is_sleep);
+    for (let i = 0; i < overviewCities.length - 1; i++) {
+        const start = overviewCities[i];
+        const end = overviewCities[i+1];
         const transport = start.transport || 'bike';
         
         const result = await requestDirections(start.name, end.name, transport);
@@ -427,7 +587,7 @@ async function initMultiModeMap(container, route) {
                 preserveViewport: true,
                 suppressMarkers: i > 0 && i < route.length - 1,
                 polylineOptions: {
-                    strokeColor: transport === 'train' ? '#94a3b8' : '#38bdf8',
+                    strokeColor: transport === 'train' ? '#94a3b8' : '#f43f5e',
                     strokeOpacity: 0.8,
                     strokeWeight: 5
                 }
@@ -513,7 +673,7 @@ function getTransportEmoji(transportType) {
     }
 }
 
-function renderMapSegment(container, data, transportType, origin, destination, cumulativeBike) {
+function renderLegStats(container, data, transportType, origin, destination, cumulativeBike) {
     const segmentDiv = document.createElement('div');
     segmentDiv.className = 'route-segment';
     
@@ -551,36 +711,6 @@ function renderMapSegment(container, data, transportType, origin, destination, c
         segmentDiv.appendChild(statsBar);
     }
 
-    const mapWidget = document.createElement('div');
-    mapWidget.className = 'map-widget';
-    
-    // Add Maximize Button
-    const maxBtn = document.createElement('button');
-    maxBtn.className = 'maximize-btn';
-    maxBtn.innerHTML = '⛶';
-    maxBtn.title = 'Maximize Map';
-    maxBtn.onclick = () => toggleMaximize(mapWidget);
-    mapWidget.appendChild(maxBtn);
-
-    const API_KEY = window.CONFIG?.GOOGLE_MAPS_API_KEY;
-    const encodedOrigin = encodeURIComponent(origin);
-    const encodedDest = encodeURIComponent(destination);
-    
-    let mode = 'bicycling';
-    if (transportType === 'train') mode = 'transit';
-    
-    const src = `https://www.google.com/maps/embed/v1/directions?key=${API_KEY}&origin=${encodedOrigin}&destination=${encodedDest}&mode=${mode}&units=metric`;
-    
-    const iframe = document.createElement('iframe');
-    iframe.width = "100%";
-    iframe.height = "450";
-    iframe.style.border = "0";
-    iframe.src = src; 
-    iframe.loading = "lazy";
-    iframe.allowFullscreen = true; 
-    
-    mapWidget.appendChild(iframe);
-    segmentDiv.appendChild(mapWidget);
     container.appendChild(segmentDiv);
 }
 
@@ -589,6 +719,7 @@ async function init() {
     initSidebar();
     
     document.getElementById('add-city-btn').addEventListener('click', addCity);
+    document.getElementById('add-sleep-btn').addEventListener('click', addSleep);
     document.getElementById('new-city-input').addEventListener('keypress', (e) => {
         if (e.key === 'Enter') addCity();
     });
