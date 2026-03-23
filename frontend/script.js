@@ -63,6 +63,7 @@ let elevationService;
 
 function initSidebar() {
     citySelector.innerHTML = '';
+    let dayNum = 1;
     cities.forEach((cityObj, index) => {
         const item = document.createElement('div');
         item.className = 'city-item';
@@ -95,7 +96,7 @@ function initSidebar() {
         
         const label = document.createElement('span');
         label.className = 'city-label';
-        label.textContent = cityObj.is_sleep ? "💤 SLEEP" : cityObj.name;
+        label.textContent = cityObj.is_sleep ? `💤 DAY ${dayNum++}` : cityObj.name;
         label.title = cityObj.name;
 
         // Inline Name Edit
