@@ -46,7 +46,7 @@ header p {
 }
 
 .sidebar {
-    width: 300px;
+    width: 300px; /* Default */
     background: var(--card-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
@@ -57,6 +57,20 @@ header p {
     height: 100vh;
     overflow-y: auto;
     box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+.resizer {
+    width: 6px;
+    cursor: col-resize;
+    background: rgba(255, 255, 255, 0.05);
+    transition: background 0.2s;
+    user-select: none;
+    z-index: 100;
+}
+
+.resizer:hover, .resizer.dragging {
+    background: var(--accent-color);
 }
 
 .sidebar h2 {
@@ -261,11 +275,58 @@ header p {
     color: #ef4444;
 }
 
+.inline-add-container {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    background: rgba(30, 41, 59, 0.9);
+    border: 1px solid var(--accent-color);
+    border-radius: 8px;
+    margin: 0.25rem 0.5rem 0.5rem 0.5rem;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.inline-add-input {
+    flex: 1;
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    outline: none;
+}
+
+.inline-add-input:focus {
+    border-color: var(--accent-color);
+}
+
+.control-btn.confirm {
+    color: #10b981;
+}
+
+.control-btn.cancel {
+    color: #ef4444;
+}
+
+.city-edit-input {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--accent-color);
+    color: var(--text-primary);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.9rem;
+    font-family: inherit;
+    flex: 1;
+    width: 0; /* Let flex-grow take over */
+    outline: none;
+}
+
 .content-area {
     flex: 1;
     padding: 0 2rem 4rem 2rem;
-    max-width: 1000px;
-    margin: 0 auto;
+    min-width: 0;
+    overflow-x: hidden;
 }
 
 header {

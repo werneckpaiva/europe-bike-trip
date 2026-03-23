@@ -98,6 +98,47 @@ function initSidebar() {
         label.textContent = cityObj.is_sleep ? "💤 SLEEP" : cityObj.name;
         label.title = cityObj.name;
 
+        // Inline Name Edit
+        if (!cityObj.is_sleep) {
+            label.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                const editInput = document.createElement('input');
+                editInput.type = 'text';
+                editInput.className = 'city-edit-input';
+                editInput.value = cityObj.name;
+                
+                const finishEdit = () => {
+                    const newVal = editInput.value.trim();
+                    if (newVal && newVal !== cityObj.name) {
+                        const oldName = cityObj.name;
+                        // Check if we already have a city with the same name
+                        if (cities.some((c, i) => i !== index && c.name === newVal)) {
+                            editInput.replaceWith(label);
+                            return;
+                        }
+                        cityObj.name = newVal;
+                        // Update labels in selectedCities too
+                        selectedCities = selectedCities.map(name => name === oldName ? newVal : name);
+                        saveData();
+                        initSidebar();
+                        renderAll();
+                    } else {
+                        editInput.replaceWith(label);
+                    }
+                };
+
+                editInput.onkeydown = (e) => {
+                    if (e.key === 'Enter') finishEdit();
+                    if (e.key === 'Escape') editInput.replaceWith(label);
+                };
+                
+                editInput.onblur = finishEdit;
+                label.replaceWith(editInput);
+                editInput.focus();
+                editInput.select();
+            });
+        }
+
         // Transport Selector (only for cities)
         if (!cityObj.is_sleep) {
             const transport = document.createElement('select');
@@ -119,7 +160,7 @@ function initSidebar() {
             item.classList.add('sleep-item');
             const nightType = document.createElement('select');
             nightType.className = 'night-type-select';
-            ['warmshowers', 'hotel', 'airbnb'].forEach(type => {
+            ['warmshowers', 'hotel', 'airbnb', 'friend'].forEach(type => {
                 const opt = document.createElement('option');
                 opt.value = type;
                 opt.textContent = type;
@@ -137,6 +178,26 @@ function initSidebar() {
         const controls = document.createElement('div');
         controls.className = 'city-controls';
         
+        // Add Sleep After
+        const addSleepBtn = document.createElement('button');
+        addSleepBtn.className = 'control-btn add-after';
+        addSleepBtn.innerHTML = '+💤';
+        addSleepBtn.title = 'Add Sleep after this';
+        addSleepBtn.onclick = (e) => {
+            e.stopPropagation();
+            addSleepAt(index);
+        };
+
+        // Add City After
+        const addCityBtn = document.createElement('button');
+        addCityBtn.className = 'control-btn add-after';
+        addCityBtn.innerHTML = '+🏠';
+        addCityBtn.title = 'Add City after this';
+        addCityBtn.onclick = (e) => {
+            e.stopPropagation();
+            showInlineAddCity(index, item);
+        };
+
         // Delete
         const delBtn = document.createElement('button');
         delBtn.className = 'control-btn delete';
@@ -146,10 +207,80 @@ function initSidebar() {
             removeCity(index);
         };
 
-        controls.append(delBtn);
+        controls.append(addCityBtn, addSleepBtn, delBtn);
         item.append(controls);
         citySelector.appendChild(item);
     });
+}
+
+function showInlineAddCity(index, parentItem) {
+    // Remove any existing inline inputs first
+    const existing = document.querySelector('.inline-add-container');
+    if (existing) existing.remove();
+
+    const container = document.createElement('div');
+    container.className = 'inline-add-container';
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Enter city name...';
+    input.className = 'inline-add-input';
+    
+    const confirmBtn = document.createElement('button');
+    confirmBtn.className = 'control-btn confirm';
+    confirmBtn.innerHTML = '✓';
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'control-btn cancel';
+    cancelBtn.innerHTML = '✕';
+    
+    const handleAdd = () => {
+        const val = input.value.trim();
+        if (val) {
+            addCityAt(index + 1, val);
+        } else {
+            container.remove();
+        }
+    };
+    
+    confirmBtn.onclick = (e) => {
+        e.stopPropagation();
+        handleAdd();
+    };
+    
+    cancelBtn.onclick = (e) => {
+        e.stopPropagation();
+        container.remove();
+    };
+    
+    input.onkeypress = (e) => {
+        if (e.key === 'Enter') handleAdd();
+        if (e.key === 'Escape') container.remove();
+    };
+    
+    container.append(input, confirmBtn, cancelBtn);
+    parentItem.after(container);
+    input.focus();
+}
+
+function addCityAt(index, name) {
+    if (name && !cities.find(c => c.name === name)) {
+        const newCity = { name: name, transport: 'bike' };
+        cities.splice(index, 0, newCity);
+        selectedCities.push(name);
+        saveData();
+        initSidebar();
+        renderAll();
+    }
+}
+
+function addSleepAt(index) {
+    const id = Date.now();
+    const sleepMark = { name: `Sleep_${id}`, is_sleep: true, night_type: 'warmshowers' };
+    cities.splice(index + 1, 0, sleepMark);
+    saveData();
+    initSidebar();
+    renderAll();
 }
 
 let draggedItemIndex = null;
@@ -308,7 +439,8 @@ async function renderAll() {
             const emojiMap = {
                 'warmshowers': '🚿',
                 'hotel': '🏨',
-                'airbnb': '🏠'
+                'airbnb': '🏠',
+                'friend': '🤝'
             };
             const nightBadge = document.createElement('span');
             nightBadge.className = 'night-type-badge';
@@ -748,6 +880,45 @@ async function init() {
     }
     
     renderAll();
+    initResizer();
+}
+
+function initResizer() {
+    const resizer = document.getElementById('resizer');
+    const sidebar = document.querySelector('.sidebar');
+    
+    // Load saved width
+    const savedWidth = localStorage.getItem('sidebarWidth');
+    if (savedWidth) {
+        sidebar.style.width = savedWidth + 'px';
+    }
+
+    resizer.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        resizer.classList.add('dragging');
+        
+        const startX = e.clientX;
+        const startWidth = sidebar.offsetWidth;
+
+        function onMouseMove(e) {
+            const width = startWidth + (e.clientX - startX);
+            if (width > 150 && width < 800) {
+                sidebar.style.width = width + 'px';
+                localStorage.setItem('sidebarWidth', width);
+                // Trigger resize for maps
+                window.dispatchEvent(new Event('resize'));
+            }
+        }
+
+        function onMouseUp() {
+            resizer.classList.remove('dragging');
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        }
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    });
 }
 
 document.addEventListener('DOMContentLoaded', init);
