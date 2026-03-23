@@ -96,7 +96,12 @@ function initSidebar() {
         
         const label = document.createElement('span');
         label.className = 'city-label';
-        label.textContent = cityObj.is_sleep ? `💤 DAY ${dayNum++}` : cityObj.name;
+        if (cityObj.is_sleep) {
+            const d = dayNum++;
+            label.innerHTML = `💤 DAY ${d} <span id="sidebar-day-stats-${d}" class="sidebar-day-dist"></span>`;
+        } else {
+            label.textContent = cityObj.name;
+        }
         label.title = cityObj.name;
 
         // Inline Name Edit
@@ -509,6 +514,14 @@ async function renderAll() {
         const item = activeRoute[i];
         
         if (item.is_sleep) {
+            // Update sidebar indicator for this day
+            const sidebarDayEl = document.getElementById(`sidebar-day-stats-${currentDay}`);
+            if (sidebarDayEl) {
+                const km = activeDayStats.bikeDist / 1000;
+                sidebarDayEl.textContent = `(${km.toFixed(1)} km)`;
+                sidebarDayEl.className = 'sidebar-day-dist ' + getDistanceColorClass(km);
+            }
+
             if (dayLegs.length > 0) {
                 await renderDayMap(currentDayGroup, dayLegs);
             }
