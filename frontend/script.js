@@ -183,6 +183,34 @@ function initSidebar() {
         const contentDiv = document.createElement('div');
         contentDiv.className = 'day-content';
         
+        let prevCityName = null;
+        for (let k = dayIndex - 1; k >= 0; k--) {
+            if (days[k].cities.length > 0) {
+                prevCityName = days[k].cities[days[k].cities.length - 1].name;
+                break;
+            }
+        }
+        
+        if (prevCityName) {
+            const prevItem = document.createElement('div');
+            prevItem.className = 'city-item';
+            prevItem.style.opacity = '0.5';
+            prevItem.style.cursor = 'default';
+            prevItem.style.background = 'transparent';
+            
+            const icon = document.createElement('span');
+            icon.innerHTML = '🏁';
+            icon.style.marginRight = '0.2rem';
+            icon.style.fontSize = '0.8rem';
+            
+            const label = document.createElement('span');
+            label.className = 'city-label';
+            label.innerHTML = `${prevCityName}`;
+            
+            prevItem.append(icon, label);
+            contentDiv.appendChild(prevItem);
+        }
+        
         // Render cities
         dayObj.cities.forEach((cityObj, cityIndex) => {
             const item = document.createElement('div');
