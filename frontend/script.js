@@ -1,7 +1,7 @@
 // Data management
 let days = [];
 let selectedCities = []; // Store names of selected cities
-let activeDayIndex = 0; // State for which day is currently showing in the right panel
+let activeDayIndex = 'all'; // State for which day is currently showing ('all' for whole trip)
 
 const DEFAULT_CITIES = [
     "London (UK)", "Harwich (UK)", "Hook of Holland (NL)", "Nijmegen (NL)",
@@ -675,9 +675,16 @@ function removeCity(dayIndex, cityIndex) {
 async function renderAll() {
     routeContainer.innerHTML = '';
     const overviewContainer = document.getElementById('overview-map');
+    const tripSummaryContainer = document.getElementById('trip-summary');
     const totalDaysEl = document.getElementById('total-days');
     overviewContainer.innerHTML = '';
+    // Don't clear header, just the dynamic part if it exists
+    const tableDiv = document.getElementById('summary-table-dynamic');
+    if (tableDiv) tableDiv.innerHTML = '';
     
+    let tripSummaryData = [];
+    let dayStartCity = null;
+
     let grandTotalElevation = 0;
     const totalsByTransport = { bike: 0, ferry: 0, train: 0 };
 
@@ -822,6 +829,17 @@ async function renderAll() {
                 sidebarDayEl.className = 'sidebar-day-dist ' + getDistanceColorClass(km);
             }
 
+            const endCity = lastCityObj ? lastCityObj.name : 'Unknown';
+            const startCity = dayStartCity ? dayStartCity.name : endCity;
+            tripSummaryData.push({
+                day: currentDay,
+                startCity: startCity,
+                endCity: endCity,
+                distance: activeDayStats.bikeDist,
+                elevation: activeDayStats.elevGain
+            });
+            dayStartCity = lastCityObj;
+
             if (dayLegs.length > 0) {
                 allLegs = allLegs.concat(dayLegs);
                 // The last city before a sleep marker is the stop point
@@ -841,6 +859,9 @@ async function renderAll() {
         }
 
         const cityObj = item;
+        if (!dayStartCity) {
+            dayStartCity = lastCityObj ? lastCityObj : cityObj;
+        }
         
         let dayEndCity = cityObj;
         for (let j = i; j < activeRoute.length; j++) {
@@ -947,12 +968,93 @@ async function renderAll() {
     
     if (activeDayIndex === 'all') {
         overviewContainer.style.display = 'block';
+        if (tripSummaryContainer) tripSummaryContainer.style.display = 'block';
+        const statsBar = document.getElementById('stats-bar');
+        if (statsBar) statsBar.style.display = 'flex';
         overviewContainer.innerHTML = '';
+        
+        if (tripSummaryContainer && tripSummaryData.length > 0) {
+            // Find or create dynamic table div
+            let tableDiv = document.getElementById('summary-table-dynamic');
+            if (!tableDiv) {
+                tableDiv = document.createElement('div');
+                tableDiv.id = 'summary-table-dynamic';
+                tripSummaryContainer.appendChild(tableDiv);
+            }
+
+            let summaryHTML = `
+                <div class="summary-table-container">
+                    <table class="summary-table">
+                        <thead>
+                            <tr>
+                                <th>Day</th>
+                                <th>Route</th>
+                                <th>Distance</th>
+                                <th>Elevation</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            tripSummaryData.forEach(d => {
+                const badgeClass = (d.distance / 1000) > 0 ? getDistanceColorClass(d.distance / 1000) : '';
+                summaryHTML += `
+                    <tr style="cursor: pointer;" onclick="activeDayIndex = ${d.day - 1}; initSidebar(); renderAll();">
+                        <td><span class="summary-day-badge">Day ${d.day}</span></td>
+                        <td>
+                            <span class="summary-city">${d.startCity}</span>
+                            <span class="summary-arrow">➔</span>
+                            <span class="summary-city">${d.endCity}</span>
+                        </td>
+                        <td><span class="summary-val sidebar-day-dist ${badgeClass}" style="vertical-align: middle; margin-left: 0; padding: 4px 8px; font-size: 0.85rem;">${(d.distance / 1000).toFixed(1)} km</span></td>
+                        <td><span class="summary-val">${Math.round(d.elevation)} m</span></td>
+                    </tr>
+                `;
+            });
+            
+            // Add Total row
+            summaryHTML += `
+                        </tbody>
+                        <tfoot>
+                            <tr style="background: rgba(56, 189, 248, 0.05); font-weight: 800;">
+                                <td>TOTAL</td>
+                                <td>${tripSummaryData.length} Days</td>
+                                <td><span class="sidebar-day-dist status-darkred" style="vertical-align: middle; margin-left: 0; padding: 4px 8px; font-size: 0.85rem;">${(totalsByTransport.bike / 1000).toFixed(1)} km</span></td>
+                                <td style="color: var(--accent-color);">${Math.round(grandTotalElevation)} m</td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            `;
+            tableDiv.innerHTML = summaryHTML;
+
+            // Handle Copy Button
+            const copyBtn = document.getElementById('copy-summary-btn');
+            if (copyBtn) {
+                copyBtn.onclick = () => {
+                    let text = `TRIP SUMMARY: EuroVelo Adventure\n\n`;
+                    tripSummaryData.forEach(d => {
+                        text += `Day ${d.day}: ${d.startCity} ➔ ${d.endCity} | ${(d.distance / 1000).toFixed(1)} km | ${Math.round(d.elevation)} m\n`;
+                    });
+                    text += `\nTOTAL: ${(totalsByTransport.bike / 1000).toFixed(1)} km | ${Math.round(grandTotalElevation)} m | ${tripSummaryData.length} Days`;
+                    
+                    navigator.clipboard.writeText(text).then(() => {
+                        const originalText = copyBtn.innerHTML;
+                        copyBtn.innerHTML = '✅ Copied!';
+                        setTimeout(() => copyBtn.innerHTML = originalText, 2000);
+                    });
+                };
+            }
+        }
+
         if (allLegs.length > 0) {
             await renderDayMap(overviewContainer, allLegs, sleepPoints);
         }
     } else {
         overviewContainer.style.display = 'none';
+        if (tripSummaryContainer) tripSummaryContainer.style.display = 'none';
+        const statsBar = document.getElementById('stats-bar');
+        if (statsBar) statsBar.style.display = 'none';
         overviewContainer.innerHTML = '';
         if (dayLegs.length > 0) {
             if ((currentDay - 1) === activeDayIndex) {

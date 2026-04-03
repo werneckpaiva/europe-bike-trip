@@ -31,10 +31,6 @@
                 <p>Tracking the journey across Europe</p>
             </header>
 
-            <div id="overview-map" class="overview-map">
-                <!-- Overview map injected here -->
-            </div>
-
             <div id="stats-bar" class="stats-bar">
                 <div class="stat-item">
                     <span class="stat-label">Cycling Distance</span>
@@ -51,6 +47,18 @@
                     <span class="stat-label">Elevation Gain</span>
                     <span id="total-elevation" class="stat-value">0 m</span>
                 </div>
+            </div>
+
+            <div id="overview-map" class="overview-map">
+                <!-- Overview map injected here -->
+            </div>
+
+            <div id="trip-summary" class="trip-summary" style="display: none;">
+                <div class="trip-summary-header">
+                    <h2 class="trip-summary-title">🗓️ Trip Summary</h2>
+                    <button id="copy-summary-btn" class="action-btn copy-btn">📋 Copy Summary</button>
+                </div>
+                <!-- Trip summary injected here -->
             </div>
 
             <div id="route-container" class="route-container">
