@@ -1,6 +1,7 @@
 // Data management
-let cities = [];
+let days = [];
 let selectedCities = []; // Store names of selected cities
+let activeDayIndex = 0; // State for which day is currently showing in the right panel
 
 const DEFAULT_CITIES = [
     "London (UK)", "Harwich (UK)", "Hook of Holland (NL)", "Nijmegen (NL)",
@@ -9,14 +10,46 @@ const DEFAULT_CITIES = [
     "Brig (CH)", "Chamonix (FR)", "Annecy (FR)", "Lyon (FR)"
 ];
 
+function migrateToDays(flatList) {
+    let newDays = [];
+    let currentCities = [];
+    let dayIndex = 1;
+    for (let item of flatList) {
+        if (item.is_sleep) {
+            newDays.push({
+                id: `day_${Date.now()}_${dayIndex++}`,
+                collapsed: false,
+                cities: currentCities,
+                night_type: item.night_type || 'warmshowers'
+            });
+            currentCities = [];
+        } else {
+            currentCities.push({ name: item.name, transport: item.transport || 'bike' });
+        }
+    }
+    if (currentCities.length > 0) {
+        newDays.push({
+            id: `day_${Date.now()}_${dayIndex++}`,
+            collapsed: false,
+            cities: currentCities,
+            night_type: 'unknown'
+        });
+    }
+    return newDays;
+}
+
 async function loadData() {
     try {
         const response = await fetch('/api/config');
         if (response.ok) {
             const data = await response.json();
             if (data.cities && data.cities.length > 0) {
-                cities = data.cities;
-                selectedCities = data.selected_cities || cities.map(c => c.name);
+                if (data.cities[0] && (data.cities[0].is_sleep !== undefined || data.cities[0].cities === undefined)) {
+                    days = migrateToDays(data.cities);
+                } else {
+                    days = data.cities; 
+                }
+                selectedCities = data.selected_cities || [];
                 return;
             }
         }
@@ -25,19 +58,30 @@ async function loadData() {
     }
     
     // Fallback if no server data or error
-    cities = [];
-    DEFAULT_CITIES.forEach((name, i) => {
-        cities.push({ name, transport: 'bike' });
-        // Add sleep after every city except the first one (start city)
-        // This makes every city hop a separate day
+    days = [];
+    let currentDayCities = [];
+    let defaultCitiesMap = DEFAULT_CITIES.map(name => ({name, transport: 'bike'}));
+    
+    defaultCitiesMap.forEach((city, i) => {
+        currentDayCities.push(city);
         if (i > 0) {
-            cities.push({ 
-                name: `Sleep_${Date.now()}_${i}`, 
-                is_sleep: true, 
-                night_type: 'warmshowers' 
+            days.push({
+                id: `day_${Date.now()}_${i}`,
+                collapsed: false,
+                cities: currentDayCities,
+                night_type: 'warmshowers'
             });
+            currentDayCities = [];
         }
     });
+    if (currentDayCities.length > 0) {
+        days.push({
+            id: `day_${Date.now()}_end`,
+            collapsed: false,
+            cities: currentDayCities,
+            night_type: 'warmshowers'
+        });
+    }
     selectedCities = DEFAULT_CITIES;
 }
 
@@ -47,7 +91,7 @@ function saveData() {
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ cities: cities, selected_cities: selectedCities })
+        body: JSON.stringify({ cities: days, selected_cities: selectedCities })
     }).catch(e => console.error('Failed to save config to server', e));
 }
 
@@ -60,52 +104,123 @@ const distanceBreakdownEl = document.getElementById('distance-breakdown');
 // Services
 let directionsService;
 let elevationService;
+const directionsCache = new Map();
+const elevationCache = new Map();
 
 function initSidebar() {
     citySelector.innerHTML = '';
-    let dayNum = 1;
-    cities.forEach((cityObj, index) => {
-        const item = document.createElement('div');
-        item.className = 'city-item';
-        item.draggable = true;
-        item.dataset.index = index;
+    
+    days.forEach((dayObj, dayIndex) => {
+        const dayNum = dayIndex + 1;
+        const dayContainer = document.createElement('div');
+        dayContainer.className = 'day-container';
+        if (dayObj.collapsed) dayContainer.classList.add('collapsed');
+        if (dayIndex === activeDayIndex) dayContainer.classList.add('active-day-sidebar');
         
-        // Drag Events
-        item.addEventListener('dragstart', handleDragStart);
-        item.addEventListener('dragover', handleDragOver);
-        item.addEventListener('drop', handleDrop);
-        item.addEventListener('dragenter', handleDragEnter);
-        item.addEventListener('dragleave', handleDragLeave);
-        item.addEventListener('dragend', handleDragEnd);
+        // Day Header
+        const dayHeader = document.createElement('div');
+        dayHeader.className = 'day-header-sidebar';
+        dayHeader.onclick = () => {
+            activeDayIndex = dayIndex;
+            initSidebar();
+            renderAll();
+        };
+        
+        const caret = document.createElement('span');
+        caret.className = 'caret';
+        caret.innerHTML = dayObj.collapsed ? '▶' : '▼';
+        caret.onclick = (e) => {
+            e.stopPropagation();
+            dayObj.collapsed = !dayObj.collapsed;
+            saveData();
+            initSidebar();
+        };
 
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.checked = selectedCities.includes(cityObj.name);
+        const dayCheckbox = document.createElement('input');
+        dayCheckbox.type = 'checkbox';
+        dayCheckbox.style.cursor = 'pointer';
         
-        checkbox.addEventListener('change', (e) => {
-            if (e.target.checked) {
-                selectedCities = cities
-                    .filter(c => c.name === cityObj.name || selectedCities.includes(c.name))
-                    .map(c => c.name);
+        const dayCities = dayObj.cities.map(c => c.name);
+        const selectedInDay = dayCities.filter(name => selectedCities.includes(name));
+        
+        dayCheckbox.checked = selectedInDay.length > 0 && selectedInDay.length === dayCities.length;
+        dayCheckbox.indeterminate = selectedInDay.length > 0 && selectedInDay.length < dayCities.length;
+        
+        dayCheckbox.onclick = (e) => {
+            e.stopPropagation();
+            const isChecked = e.target.checked;
+            if (isChecked) {
+                const flatRoute = days.map(d => d.cities).flat().map(c => c.name);
+                selectedCities = flatRoute.filter(c => selectedCities.includes(c) || dayCities.includes(c));
             } else {
-                selectedCities = selectedCities.filter(name => name !== cityObj.name);
+                selectedCities = selectedCities.filter(name => !dayCities.includes(name));
             }
             saveData();
+            initSidebar();
             renderAll();
-        });
+        };
         
-        const label = document.createElement('span');
-        label.className = 'city-label';
-        if (cityObj.is_sleep) {
-            const d = dayNum++;
-            label.innerHTML = `💤 DAY ${d} <span id="sidebar-day-stats-${d}" class="sidebar-day-dist"></span>`;
-        } else {
-            label.textContent = cityObj.name;
-        }
-        label.title = cityObj.name;
+        const title = document.createElement('span');
+        title.innerHTML = `<strong>Day ${dayNum}</strong> <span id="sidebar-day-stats-${dayNum}" class="sidebar-day-dist"></span>`;
+        title.className = 'day-title-span';
+        
+        const delDayBtn = document.createElement('button');
+        delDayBtn.className = 'control-btn delete';
+        delDayBtn.innerHTML = '✕';
+        delDayBtn.title = 'Delete Day';
+        delDayBtn.onclick = () => {
+            if (confirm('Delete this entire day and its cities?')) {
+                days.splice(dayIndex, 1);
+                saveData();
+                initSidebar();
+                renderAll();
+            }
+        };
+        
+        dayHeader.append(caret, dayCheckbox, title, delDayBtn);
+        dayContainer.appendChild(dayHeader);
+        
+        const contentDiv = document.createElement('div');
+        contentDiv.className = 'day-content';
+        
+        // Render cities
+        dayObj.cities.forEach((cityObj, cityIndex) => {
+            const item = document.createElement('div');
+            item.className = 'city-item';
+            item.draggable = true;
+            item.dataset.dayIndex = dayIndex;
+            item.dataset.cityIndex = cityIndex;
+            
+            // Drag Events
+            item.addEventListener('dragstart', handleDragStart);
+            item.addEventListener('dragover', handleDragOver);
+            item.addEventListener('drop', handleDrop);
+            item.addEventListener('dragenter', handleDragEnter);
+            item.addEventListener('dragleave', handleDragLeave);
+            item.addEventListener('dragend', handleDragEnd);
 
-        // Inline Name Edit
-        if (!cityObj.is_sleep) {
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = selectedCities.includes(cityObj.name);
+            
+            checkbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    selectedCities = days.map(d => d.cities).flat()
+                        .filter(c => c.name === cityObj.name || selectedCities.includes(c.name))
+                        .map(c => c.name);
+                } else {
+                    selectedCities = selectedCities.filter(name => name !== cityObj.name);
+                }
+                saveData();
+                renderAll();
+            });
+            
+            const label = document.createElement('span');
+            label.className = 'city-label';
+            label.textContent = cityObj.name;
+            label.title = cityObj.name;
+
+            // Inline Name Edit
             label.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 const editInput = document.createElement('input');
@@ -117,13 +232,13 @@ function initSidebar() {
                     const newVal = editInput.value.trim();
                     if (newVal && newVal !== cityObj.name) {
                         const oldName = cityObj.name;
-                        // Check if we already have a city with the same name
-                        if (cities.some((c, i) => i !== index && c.name === newVal)) {
+                        // Check if we already have a city with the same name anywhere
+                        const exists = days.some(d => d.cities.some(c => c.name === newVal));
+                        if (exists) {
                             editInput.replaceWith(label);
                             return;
                         }
                         cityObj.name = newVal;
-                        // Update labels in selectedCities too
                         selectedCities = selectedCities.map(name => name === oldName ? newVal : name);
                         saveData();
                         initSidebar();
@@ -143,10 +258,8 @@ function initSidebar() {
                 editInput.focus();
                 editInput.select();
             });
-        }
 
-        // Transport Selector (only for cities)
-        if (!cityObj.is_sleep) {
+            // Transport Selector
             const transport = document.createElement('select');
             transport.className = 'transport-select';
             ['bike', 'ferry', 'train'].forEach(type => {
@@ -162,64 +275,72 @@ function initSidebar() {
                 renderAll();
             });
             item.append(checkbox, label, transport);
-        } else {
-            item.classList.add('sleep-item');
-            const nightType = document.createElement('select');
-            nightType.className = 'night-type-select';
-            ['warmshowers', 'hotel', 'airbnb', 'friend'].forEach(type => {
-                const opt = document.createElement('option');
-                opt.value = type;
-                opt.textContent = type;
-                if (cityObj.night_type === type) opt.selected = true;
-                nightType.appendChild(opt);
-            });
-            nightType.addEventListener('change', (e) => {
-                cityObj.night_type = e.target.value;
-                saveData();
-                renderAll();
-            });
-            item.append(label, nightType);
+
+            const controls = document.createElement('div');
+            controls.className = 'city-controls';
+            
+            const addCityBtn = document.createElement('button');
+            addCityBtn.className = 'control-btn add-after';
+            addCityBtn.innerHTML = '+🏠';
+            addCityBtn.title = 'Add City after this';
+            addCityBtn.onclick = (e) => {
+                e.stopPropagation();
+                showInlineAddCity(dayIndex, cityIndex, item);
+            };
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'control-btn delete';
+            delBtn.innerHTML = '✕';
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                removeCity(dayIndex, cityIndex);
+            };
+
+            controls.append(addCityBtn, delBtn);
+            item.append(controls);
+            contentDiv.appendChild(item);
+        });
+
+        // Add City empty state if day has no cities
+        if (dayObj.cities.length === 0) {
+            const addEmptyBtn = document.createElement('button');
+            addEmptyBtn.className = 'action-btn add-empty-btn';
+            addEmptyBtn.innerHTML = '+ Add City';
+            addEmptyBtn.style.margin = '4px 10px';
+            addEmptyBtn.onclick = () => {
+                showInlineAddCity(dayIndex, -1, addEmptyBtn);
+            };
+            contentDiv.appendChild(addEmptyBtn);
         }
 
-        const controls = document.createElement('div');
-        controls.className = 'city-controls';
-        
-        // Add Sleep After
-        const addSleepBtn = document.createElement('button');
-        addSleepBtn.className = 'control-btn add-after';
-        addSleepBtn.innerHTML = '+💤';
-        addSleepBtn.title = 'Add Sleep after this';
-        addSleepBtn.onclick = (e) => {
-            e.stopPropagation();
-            addSleepAt(index);
-        };
+        // Night Type item at the bottom of the day
+        const nightItem = document.createElement('div');
+        nightItem.className = 'sleep-item';
+        const nightLabel = document.createElement('span');
+        nightLabel.innerHTML = '💤&nbsp;<strong>Sleep</strong>';
+        const nightType = document.createElement('select');
+        nightType.className = 'night-type-select';
+        ['warmshowers', 'hotel', 'airbnb', 'friend'].forEach(type => {
+            const opt = document.createElement('option');
+            opt.value = type;
+            opt.textContent = type;
+            if (dayObj.night_type === type) opt.selected = true;
+            nightType.appendChild(opt);
+        });
+        nightType.addEventListener('change', (e) => {
+            dayObj.night_type = e.target.value;
+            saveData();
+            renderAll();
+        });
+        nightItem.append(nightLabel, nightType);
+        contentDiv.appendChild(nightItem);
 
-        // Add City After
-        const addCityBtn = document.createElement('button');
-        addCityBtn.className = 'control-btn add-after';
-        addCityBtn.innerHTML = '+🏠';
-        addCityBtn.title = 'Add City after this';
-        addCityBtn.onclick = (e) => {
-            e.stopPropagation();
-            showInlineAddCity(index, item);
-        };
-
-        // Delete
-        const delBtn = document.createElement('button');
-        delBtn.className = 'control-btn delete';
-        delBtn.innerHTML = '✕';
-        delBtn.onclick = (e) => {
-            e.stopPropagation();
-            removeCity(index);
-        };
-
-        controls.append(addCityBtn, addSleepBtn, delBtn);
-        item.append(controls);
-        citySelector.appendChild(item);
+        dayContainer.appendChild(contentDiv);
+        citySelector.appendChild(dayContainer);
     });
 }
 
-function showInlineAddCity(index, parentItem) {
+function showInlineAddCity(dayIndex, cityIndex, parentItem) {
     // Remove any existing inline inputs first
     const existing = document.querySelector('.inline-add-container');
     if (existing) existing.remove();
@@ -243,7 +364,7 @@ function showInlineAddCity(index, parentItem) {
     const handleAdd = () => {
         const val = input.value.trim();
         if (val) {
-            addCityAt(index + 1, val);
+            addCityAt(dayIndex, cityIndex + 1, val);
         } else {
             container.remove();
         }
@@ -269,10 +390,11 @@ function showInlineAddCity(index, parentItem) {
     input.focus();
 }
 
-function addCityAt(index, name) {
-    if (name && !cities.find(c => c.name === name)) {
+function addCityAt(dayIndex, insertIndex, name) {
+    const exists = days.some(d => d.cities.some(c => c.name === name));
+    if (name && !exists) {
         const newCity = { name: name, transport: 'bike' };
-        cities.splice(index, 0, newCity);
+        days[dayIndex].cities.splice(insertIndex, 0, newCity);
         selectedCities.push(name);
         saveData();
         initSidebar();
@@ -280,19 +402,13 @@ function addCityAt(index, name) {
     }
 }
 
-function addSleepAt(index) {
-    const id = Date.now();
-    const sleepMark = { name: `Sleep_${id}`, is_sleep: true, night_type: 'warmshowers' };
-    cities.splice(index + 1, 0, sleepMark);
-    saveData();
-    initSidebar();
-    renderAll();
-}
-
-let draggedItemIndex = null;
+let draggedObj = null;
 
 function handleDragStart(e) {
-    draggedItemIndex = parseInt(this.dataset.index);
+    draggedObj = {
+        dayIndex: parseInt(this.dataset.dayIndex),
+        cityIndex: parseInt(this.dataset.cityIndex)
+    };
     this.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
 }
@@ -300,11 +416,8 @@ function handleDragStart(e) {
 function handleDragOver(e) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-    
-    // Calculate if we should insert above or below
     const rect = this.getBoundingClientRect();
     const midPoint = rect.top + rect.height / 2;
-    
     this.classList.remove('over-top', 'over-bottom');
     if (e.clientY < midPoint) {
         this.classList.add('over-top');
@@ -313,79 +426,62 @@ function handleDragOver(e) {
     }
 }
 
-function handleDragEnter(e) {
-    // Just visual feedback
-}
-
+function handleDragEnter(e) {}
 function handleDragLeave(e) {
     this.classList.remove('over-top', 'over-bottom');
 }
 
 function handleDrop(e) {
     e.preventDefault();
-    const targetIndex = parseInt(this.dataset.index);
+    if (!draggedObj) return;
+
+    const targetDayIndex = parseInt(this.dataset.dayIndex);
+    const targetCityIndex = parseInt(this.dataset.cityIndex);
+
     const rect = this.getBoundingClientRect();
     const midPoint = rect.top + rect.height / 2;
     const insertAfter = e.clientY >= midPoint;
     
-    let toIndex;
-    if (insertAfter) {
-        toIndex = (draggedItemIndex < targetIndex) ? targetIndex : targetIndex + 1;
-    } else {
-        toIndex = (draggedItemIndex < targetIndex) ? targetIndex - 1 : targetIndex;
+    let toCityIndex = insertAfter ? targetCityIndex + 1 : targetCityIndex;
+
+    // Moving city logic
+    if (draggedObj.dayIndex === targetDayIndex) {
+        // Adjust index if moving down in same day
+        if (draggedObj.cityIndex < toCityIndex) {
+            toCityIndex--;
+        }
     }
     
-    toIndex = Math.max(0, Math.min(toIndex, cities.length));
-
-    if (draggedItemIndex !== toIndex) {
-        reorderCities(draggedItemIndex, toIndex);
+    if (draggedObj.dayIndex !== targetDayIndex || draggedObj.cityIndex !== toCityIndex) {
+        const item = days[draggedObj.dayIndex].cities.splice(draggedObj.cityIndex, 1)[0];
+        days[targetDayIndex].cities.splice(toCityIndex, 0, item);
+        saveData();
+        initSidebar();
+        renderAll();
     }
+    
     this.classList.remove('over-top', 'over-bottom');
 }
 
 function handleDragEnd(e) {
     this.classList.remove('dragging');
-    const items = document.querySelectorAll('.city-item');
-    items.forEach(item => item.classList.remove('over-top', 'over-bottom'));
+    document.querySelectorAll('.city-item').forEach(item => {
+        item.classList.remove('over-top', 'over-bottom');
+    });
+    draggedObj = null;
 }
 
-function reorderCities(fromIndex, toIndex) {
-    const item = cities.splice(fromIndex, 1)[0];
-    cities.splice(toIndex, 0, item);
-    saveData();
-    initSidebar();
-    renderAll();
-}
-
-function addCity() {
-    const input = document.getElementById('new-city-input');
-    const val = input.value.trim();
-    if (val && !cities.find(c => c.name === val)) {
-        const newCity = { name: val, transport: 'bike' };
-        cities.push(newCity);
-        selectedCities.push(val);
-        input.value = '';
-        saveData();
-        initSidebar();
-        renderAll();
-    }
-}
-
-function addSleep() {
+function addNewDay() {
     const id = Date.now();
-    const sleepMark = { name: `Sleep_${id}`, is_sleep: true, night_type: 'warmshowers' };
-    cities.push(sleepMark);
+    days.push({ id: `day_${id}`, collapsed: false, cities: [], night_type: 'warmshowers' });
     saveData();
     initSidebar();
-    renderAll();
 }
 
-function removeCity(index) {
-    const cityObj = cities[index];
-    cities.splice(index, 1);
-    if (!cityObj.is_sleep) {
-        selectedCities = selectedCities.filter(name => name !== cityObj.name);
-    }
+function removeCity(dayIndex, cityIndex) {
+    const cityObj = days[dayIndex].cities[cityIndex];
+    days[dayIndex].cities.splice(cityIndex, 1);
+    selectedCities = selectedCities.filter(name => name !== cityObj.name);
     saveData();
     initSidebar();
     renderAll();
@@ -400,10 +496,23 @@ async function renderAll() {
     let grandTotalElevation = 0;
     const totalsByTransport = { bike: 0, ferry: 0, train: 0 };
 
-    const activeRoute = cities.filter(c => c.is_sleep || selectedCities.includes(c.name));
+    let activeRoute = [];
+    days.forEach(dayObj => {
+        dayObj.cities.forEach(c => {
+            if (selectedCities.includes(c.name)) {
+                activeRoute.push({ ...c }); // Need it to look like old cityObj
+            }
+        });
+        if (activeRoute.length > 0 && activeRoute[activeRoute.length - 1].is_sleep !== true) {
+            activeRoute.push({ 
+                is_sleep: true, 
+                night_type: dayObj.night_type 
+            });
+        }
+    });
 
     if (activeRoute.length >= 2) {
-        renderMultiModeOverview(activeRoute);
+        overviewContainer.style.display = 'none'; // Hide multi-mode overview as requested
     }
 
     let currentDayGroup = null;
@@ -489,6 +598,10 @@ async function renderAll() {
         statsContainer.append(distItem, elevItem, cumItem);
         header.appendChild(statsContainer);
         group.appendChild(header);
+        
+        const isTargetActive = (dayNum - 1) === activeDayIndex;
+        group.style.display = isTargetActive ? 'flex' : 'none';
+        
         routeContainer.appendChild(group);
 
         return {
@@ -523,7 +636,9 @@ async function renderAll() {
             }
 
             if (dayLegs.length > 0) {
-                await renderDayMap(currentDayGroup, dayLegs);
+                if ((currentDay - 1) === activeDayIndex) {
+                    await renderDayMap(currentDayGroup, dayLegs);
+                }
             }
             dayLegs = [];
             currentDay++;
@@ -564,9 +679,11 @@ async function renderAll() {
                 const distance = leg.distance.value;
                 totalsByTransport[transport] = (totalsByTransport[transport] || 0) + distance;
 
+                const routeCacheKey = `${lastCityObj.name}|${cityObj.name}|${transport}`;
+                
                 let elevationGain = 0;
                 if (transport !== 'train') {
-                    elevationGain = await calculateElevation(result.routes[0].overview_path);
+                    elevationGain = await calculateElevation(result.routes[0].overview_path, routeCacheKey);
                     grandTotalElevation += elevationGain;
                 }
 
@@ -607,7 +724,9 @@ async function renderAll() {
     }
 
     if (dayLegs.length > 0) {
-        await renderDayMap(currentDayGroup, dayLegs);
+        if ((currentDay - 1) === activeDayIndex) {
+            await renderDayMap(currentDayGroup, dayLegs);
+        }
     }
 
     totalDistanceEl.textContent = `${(totalsByTransport.bike / 1000).toFixed(1)} km`;
@@ -763,6 +882,11 @@ async function requestDirections(origin, destination, transportType) {
     
     if (!directionsService) directionsService = new google.maps.DirectionsService();
     
+    const cacheKey = `${origin}|${destination}|${transportType}`;
+    if (directionsCache.has(cacheKey)) {
+        return directionsCache.get(cacheKey);
+    }
+
     let travelMode = google.maps.TravelMode.BICYCLING;
     if (transportType === 'train') travelMode = google.maps.TravelMode.TRANSIT;
 
@@ -773,6 +897,7 @@ async function requestDirections(origin, destination, transportType) {
             travelMode: travelMode
         }, (result, status) => {
             if (status === google.maps.DirectionsStatus.OK) {
+                directionsCache.set(cacheKey, result);
                 resolve(result);
             } else {
                 resolve(null);
@@ -781,10 +906,14 @@ async function requestDirections(origin, destination, transportType) {
     });
 }
 
-async function calculateElevation(path) {
+async function calculateElevation(path, cacheKey) {
     if (!google || !google.maps || !google.maps.ElevationService) return 0;
     if (!elevationService) elevationService = new google.maps.ElevationService();
     
+    if (cacheKey && elevationCache.has(cacheKey)) {
+        return elevationCache.get(cacheKey);
+    }
+
     return new Promise((resolve) => {
         elevationService.getElevationAlongPath({
             path: path,
@@ -797,6 +926,7 @@ async function calculateElevation(path) {
                     if (diff > 0) gain += diff;
                 }
             }
+            if (cacheKey) elevationCache.set(cacheKey, gain);
             resolve(gain);
         });
     });
@@ -864,14 +994,11 @@ async function init() {
     await loadData();
     initSidebar();
     
-    document.getElementById('add-city-btn').addEventListener('click', addCity);
-    document.getElementById('add-sleep-btn').addEventListener('click', addSleep);
-    document.getElementById('new-city-input').addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') addCity();
-    });
+    const addDayBtn = document.getElementById('add-day-btn');
+    if (addDayBtn) addDayBtn.addEventListener('click', addNewDay);
 
     document.getElementById('select-all').addEventListener('click', () => {
-        selectedCities = cities.map(c => c.name);
+        selectedCities = days.map(d => d.cities).flat().map(c => c.name);
         saveData();
         initSidebar(); 
         renderAll();

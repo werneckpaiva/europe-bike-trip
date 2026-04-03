@@ -14,6 +14,14 @@ DB_PATH = os.environ.get("DB_PATH", os.path.join(BASE_DIR, "pedal.db"))
 
 db = Database(DB_PATH)
 
+# Run database migration to new hierarchy format on startup
+from backend.migrations import run_all_migrations
+try:
+    run_all_migrations(db)
+except Exception as e:
+    import logging
+    logging.getLogger(__name__).error(f"Failed to run database migration: {e}")
+
 @app.route('/')
 def index():
     return app.send_static_file('index.html')

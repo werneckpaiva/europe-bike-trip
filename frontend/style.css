@@ -131,6 +131,61 @@ header p {
     border-color: var(--accent-color);
 }
 
+.day-container {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+}
+
+.day-header-sidebar {
+    display: flex;
+    align-items: center;
+    padding: 0.6rem 0.8rem;
+    background: rgba(255, 255, 255, 0.05);
+    cursor: pointer;
+    user-select: none;
+    gap: 0.5rem;
+    border-left: 3px solid transparent;
+}
+
+.active-day-sidebar {
+    background: rgba(56, 189, 248, 0.1);
+    border-color: rgba(56, 189, 248, 0.3);
+}
+
+.active-day-sidebar .day-header-sidebar {
+    border-left: 3px solid var(--accent-color);
+}
+
+.day-header-sidebar:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.caret {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    transition: transform 0.2s;
+}
+
+.day-title-span {
+    flex: 1;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.day-content {
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.day-container.collapsed .day-content {
+    display: none;
+}
+
 .city-item {
     display: flex;
     align-items: center;
@@ -503,8 +558,8 @@ body.overlay-active {
 
 .status-green { background: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; }
 .status-orange { background: rgba(245, 158, 11, 0.2); border: 1px solid #f59e0b; }
-.status-red { background: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; }
-.status-darkred { background: #991b1b; border: 1px solid #7f1d1d; }
+.status-red { background: rgba(239, 68, 68, 0.3); border: 1px solid #ef4444; color: #fff; }
+.status-darkred { background: #991b1b; border: 1px solid #7f1d1d; color: #fff; }
 
 .day-group {
     background: rgba(255, 255, 255, 0.03);
@@ -699,8 +754,8 @@ body.overlay-active {
 
 .seg-stat.status-green .seg-value { color: #10b981; }
 .seg-stat.status-orange .seg-value { color: #f59e0b; }
-.seg-stat.status-red .seg-value { color: #ef4444; }
-.seg-stat.status-darkred .seg-value { color: #991b1b; }
+.seg-stat.status-red .seg-value { color: #fff; }
+.seg-stat.status-darkred .seg-value { color: #fff; }
 
 .map-widget iframe {
     display: block;
