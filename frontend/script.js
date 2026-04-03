@@ -83,6 +83,16 @@ async function loadData() {
         });
     }
     selectedCities = DEFAULT_CITIES;
+    
+    // Ensure at least one day exists
+    if (days.length === 0) {
+        days.push({
+            id: `day_${Date.now()}`,
+            collapsed: false,
+            cities: [],
+            night_type: 'warmshowers'
+        });
+    }
 }
 
 function saveData() {
@@ -204,7 +214,45 @@ function initSidebar() {
         
         const contentDiv = document.createElement('div');
         contentDiv.className = 'day-content';
+        contentDiv.dataset.dayIndex = dayIndex;
         
+        contentDiv.addEventListener('dragover', (e) => {
+            if (draggedObj) {
+                const targetDayIndex = parseInt(contentDiv.dataset.dayIndex);
+                if (days[targetDayIndex].cities.length === 0) {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    contentDiv.classList.add('over-day-content');
+                }
+            }
+        });
+        
+        contentDiv.addEventListener('dragleave', (e) => {
+            contentDiv.classList.remove('over-day-content');
+        });
+        
+        contentDiv.addEventListener('drop', (e) => {
+            if (!draggedObj) return;
+            
+            const targetDayIndex = parseInt(contentDiv.dataset.dayIndex);
+            if (days[targetDayIndex].cities.length > 0) return; // Only allow drop if empty
+            
+            if (e.target.closest('.city-item')) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            if (draggedObj.dayIndex !== targetDayIndex) {
+                const item = days[draggedObj.dayIndex].cities.splice(draggedObj.cityIndex, 1)[0];
+                days[targetDayIndex].cities.push(item);
+                saveData();
+                initSidebar();
+                renderAll();
+            }
+            contentDiv.classList.remove('over-day-content');
+            draggedObj = null;
+        });
+
         let prevCityName = null;
         for (let k = dayIndex - 1; k >= 0; k--) {
             for (let j = days[k].cities.length - 1; j >= 0; j--) {
@@ -537,6 +585,7 @@ function handleDayDragStart(e) {
 }
 
 function handleDayDragOver(e) {
+    if (draggedDayIndex === null) return; // Prevent city drop
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     const rect = this.getBoundingClientRect();
@@ -554,6 +603,7 @@ function handleDayDragLeave(e) {
 }
 
 function handleDayDrop(e) {
+    if (draggedDayIndex === null) return; // Prevent city drop
     e.preventDefault();
     e.stopPropagation();
     if (draggedDayIndex === null) return;
@@ -639,7 +689,6 @@ async function renderAll() {
     });
 
     if (activeRoute.length >= 2) {
-        overviewContainer.style.display = 'none'; // Hide multi-mode overview as requested
     }
 
     let currentDayGroup = null;
@@ -726,7 +775,7 @@ async function renderAll() {
         header.appendChild(statsContainer);
         group.appendChild(header);
         
-        const isTargetActive = (dayNum - 1) === activeDayIndex;
+        const isTargetActive = activeDayIndex === 'all' ? false : ((dayNum - 1) === activeDayIndex);
         group.style.display = isTargetActive ? 'flex' : 'none';
         
         routeContainer.appendChild(group);
@@ -750,11 +799,12 @@ async function renderAll() {
 
     let dayLegs = [];
 
+    let allLegs = [];
+
     for (let i = 0; i < activeRoute.length; i++) {
         const item = activeRoute[i];
         
         if (item.is_sleep) {
-            // Update sidebar indicator for this day
             const sidebarDayEl = document.getElementById(`sidebar-day-stats-${currentDay}`);
             if (sidebarDayEl) {
                 const km = activeDayStats.bikeDist / 1000;
@@ -763,6 +813,7 @@ async function renderAll() {
             }
 
             if (dayLegs.length > 0) {
+                allLegs = allLegs.concat(dayLegs);
                 if ((currentDay - 1) === activeDayIndex) {
                     await renderDayMap(currentDayGroup, dayLegs);
                 }
@@ -777,14 +828,12 @@ async function renderAll() {
 
         const cityObj = item;
         
-        // Find the last city of THIS day to show exactly what this day covers
         let dayEndCity = cityObj;
         for (let j = i; j < activeRoute.length; j++) {
             if (activeRoute[j].is_sleep) break;
             if (!activeRoute[j].is_sleep) dayEndCity = activeRoute[j];
         }
 
-        // Render card: "A to B" for each day
         if (!dayData.journeyShown) {
             const startCard = document.createElement('div');
             startCard.className = 'city-card day-summary-card';
@@ -800,7 +849,6 @@ async function renderAll() {
         if (lastCityObj) {
             const transport = lastCityObj.transport || 'bike';
             
-            // Check matching target cache
             const hasValidCache = lastCityObj.cachedNextCity === cityObj.name && lastCityObj.cachedTransport === transport;
             
             let legData = null;
@@ -825,7 +873,6 @@ async function renderAll() {
                     
                     legData = { distance, elevation: elevationGain, polyline, result };
                     
-                    // Mutate db object and persist it to json config
                     lastCityObj.cachedNextCity = cityObj.name;
                     lastCityObj.cachedTransport = transport;
                     lastCityObj.cachedDistance = distance;
@@ -865,7 +912,6 @@ async function renderAll() {
             }
         }
         
-        // Render final destination card only if it's the last selected city in the whole route
         const lastSelectedCity = activeRoute.slice().reverse().find(c => !c.is_sleep);
         if (cityObj === lastSelectedCity) {
             const cityCard = document.createElement('div');
@@ -881,8 +927,23 @@ async function renderAll() {
     }
 
     if (dayLegs.length > 0) {
-        if ((currentDay - 1) === activeDayIndex) {
-            await renderDayMap(currentDayGroup, dayLegs);
+        allLegs = allLegs.concat(dayLegs);
+    }
+
+    
+    if (activeDayIndex === 'all') {
+        overviewContainer.style.display = 'block';
+        overviewContainer.innerHTML = '';
+        if (allLegs.length > 0) {
+            await renderDayMap(overviewContainer, allLegs);
+        }
+    } else {
+        overviewContainer.style.display = 'none';
+        overviewContainer.innerHTML = '';
+        if (dayLegs.length > 0) {
+            if ((currentDay - 1) === activeDayIndex) {
+                await renderDayMap(currentDayGroup, dayLegs);
+            }
         }
     }
 
@@ -1188,22 +1249,20 @@ async function init() {
     await loadData();
     initSidebar();
     
-    const addDayBtn = document.getElementById('add-day-btn');
-    if (addDayBtn) addDayBtn.addEventListener('click', addNewDay);
+    const showWholeTripBtn = document.getElementById('show-whole-trip');
+    if (showWholeTripBtn) {
+        if (activeDayIndex === 'all') {
+            showWholeTripBtn.classList.add('active-trip');
+        } else {
+            showWholeTripBtn.classList.remove('active-trip');
+        }
 
-    document.getElementById('select-all').addEventListener('click', () => {
-        selectedCities = days.map(d => d.cities).flat().map(c => c.name);
-        saveData();
-        initSidebar(); 
-        renderAll();
-    });
-
-    document.getElementById('deselect-all').addEventListener('click', () => {
-        selectedCities = [];
-        saveData();
-        initSidebar();
-        renderAll();
-    });
+        showWholeTripBtn.onclick = () => {
+            activeDayIndex = 'all';
+            initSidebar();
+            renderAll();
+        };
+    }
 
     try {
         const { DirectionsService } = await google.maps.importLibrary("routes");
