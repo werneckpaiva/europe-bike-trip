@@ -622,11 +622,12 @@ async function renderAll() {
     let grandTotalElevation = 0;
     const totalsByTransport = { bike: 0, ferry: 0, train: 0 };
 
+    let configChanged = false;
     let activeRoute = [];
     days.forEach(dayObj => {
         dayObj.cities.forEach(c => {
             if (selectedCities.includes(c.name)) {
-                activeRoute.push({ ...c }); // Need it to look like old cityObj
+                activeRoute.push(c);
             }
         });
         if (activeRoute.length > 0 && activeRoute[activeRoute.length - 1].is_sleep !== true) {
@@ -798,18 +799,48 @@ async function renderAll() {
 
         if (lastCityObj) {
             const transport = lastCityObj.transport || 'bike';
-            const result = await requestDirections(lastCityObj.name, cityObj.name, transport);
             
-            if (result) {
-                const leg = result.routes[0].legs[0];
-                const distance = leg.distance.value;
-                totalsByTransport[transport] = (totalsByTransport[transport] || 0) + distance;
-
-                const routeCacheKey = `${lastCityObj.name}|${cityObj.name}|${transport}`;
+            // Check matching target cache
+            const hasValidCache = lastCityObj.cachedNextCity === cityObj.name && lastCityObj.cachedTransport === transport;
+            
+            let legData = null;
+            
+            if (hasValidCache && lastCityObj.cachedPolyline) {
+                legData = {
+                    distance: lastCityObj.cachedDistance,
+                    elevation: lastCityObj.cachedElevation,
+                    polyline: lastCityObj.cachedPolyline
+                };
+            } else {
+                const result = await requestDirections(lastCityObj.name, cityObj.name, transport);
+                if (result) {
+                    const leg = result.routes[0].legs[0];
+                    const distance = leg.distance.value;
+                    let elevationGain = 0;
+                    if (transport !== 'train') {
+                        elevationGain = await calculateElevation(result.routes[0].overview_path, `${lastCityObj.name}|${cityObj.name}|${transport}`);
+                    }
+                    let polyline = result.routes[0].overview_polyline;
+                    if (typeof polyline === 'object' && polyline.points) polyline = polyline.points;
+                    
+                    legData = { distance, elevation: elevationGain, polyline, result };
+                    
+                    // Mutate db object and persist it to json config
+                    lastCityObj.cachedNextCity = cityObj.name;
+                    lastCityObj.cachedTransport = transport;
+                    lastCityObj.cachedDistance = distance;
+                    lastCityObj.cachedElevation = elevationGain;
+                    lastCityObj.cachedPolyline = polyline;
+                    configChanged = true;
+                }
+            }
+            
+            if (legData) {
+                const distance = legData.distance;
+                const elevationGain = legData.elevation || 0;
                 
-                let elevationGain = 0;
+                totalsByTransport[transport] = (totalsByTransport[transport] || 0) + distance;
                 if (transport !== 'train') {
-                    elevationGain = await calculateElevation(result.routes[0].overview_path, routeCacheKey);
                     grandTotalElevation += elevationGain;
                 }
 
@@ -828,7 +859,7 @@ async function renderAll() {
                 activeDayStats.cum.textContent = `Total: ${(cumulativeBikeDistance / 1000).toFixed(1)} km`;
 
                 renderLegStats(currentDayGroup, { distance, elevationGain }, transport, lastCityObj.name, cityObj.name, cumulativeBikeDistance / 1000);
-                dayLegs.push({ result, transport });
+                dayLegs.push({ legData, transport });
             } else {
                 renderLegStats(currentDayGroup, null, transport, lastCityObj.name, cityObj.name, cumulativeBikeDistance / 1000);
             }
@@ -859,6 +890,10 @@ async function renderAll() {
     totalElevationEl.textContent = `${Math.round(grandTotalElevation)} m`;
     totalDaysEl.textContent = currentDay;
     distanceBreakdownEl.innerHTML = '';
+    
+    if (configChanged) {
+        saveData();
+    }
 }
 
 async function renderDayMap(container, legs) {
@@ -875,6 +910,7 @@ async function renderDayMap(container, legs) {
     mapWidget.appendChild(maxBtn);
 
     const { Map } = await google.maps.importLibrary("maps");
+    const { encoding } = await google.maps.importLibrary("geometry");
     const map = new Map(mapWidget, {
         zoom: 7,
         mapTypeId: google.maps.MapTypeId.TERRAIN,
@@ -887,21 +923,53 @@ async function renderDayMap(container, legs) {
 
     for (let i = 0; i < legs.length; i++) {
         const leg = legs[i];
-        if (leg.result) {
-            new google.maps.DirectionsRenderer({
-                map: map,
-                directions: leg.result,
-                preserveViewport: true,
-                suppressMarkers: i > 0 && i < legs.length - 1,
-                polylineOptions: {
+        if (leg.legData) {
+            let path;
+            if (leg.legData.polyline) {
+                path = encoding.decodePath(leg.legData.polyline);
+            }
+
+            if (leg.legData.result) {
+                new google.maps.DirectionsRenderer({
+                    map: map,
+                    directions: leg.legData.result,
+                    preserveViewport: true,
+                    suppressMarkers: i > 0 && i < legs.length - 1,
+                    polylineOptions: {
+                        strokeColor: leg.transport === 'train' ? '#94a3b8' : '#f43f5e',
+                        strokeOpacity: 0.8,
+                        strokeWeight: 5
+                    }
+                });
+            } else if (path) {
+                new google.maps.Polyline({
+                    map: map,
+                    path: path,
                     strokeColor: leg.transport === 'train' ? '#94a3b8' : '#f43f5e',
                     strokeOpacity: 0.8,
                     strokeWeight: 5
+                });
+                
+                if (i === 0 || i === legs.length - 1) {
+                    new google.maps.Marker({
+                        position: path[0],
+                        map: map
+                    });
+                    new google.maps.Marker({
+                        position: path[path.length - 1],
+                        map: map
+                    });
                 }
-            });
-            const steps = leg.result.routes[0].legs[0];
-            bounds.extend(steps.start_location);
-            bounds.extend(steps.end_location);
+            }
+            
+            if (path) {
+                bounds.extend(path[0]);
+                bounds.extend(path[path.length - 1]);
+            } else if (leg.legData.result) {
+                const steps = leg.legData.result.routes[0].legs[0];
+                bounds.extend(steps.start_location);
+                bounds.extend(steps.end_location);
+            }
         }
     }
 
