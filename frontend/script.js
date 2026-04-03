@@ -185,10 +185,13 @@ function initSidebar() {
         
         let prevCityName = null;
         for (let k = dayIndex - 1; k >= 0; k--) {
-            if (days[k].cities.length > 0) {
-                prevCityName = days[k].cities[days[k].cities.length - 1].name;
-                break;
+            for (let j = days[k].cities.length - 1; j >= 0; j--) {
+                if (selectedCities.includes(days[k].cities[j].name)) {
+                    prevCityName = days[k].cities[j].name;
+                    break;
+                }
             }
+            if (prevCityName) break;
         }
         
         if (prevCityName) {
@@ -659,7 +662,7 @@ async function renderAll() {
             const sidebarDayEl = document.getElementById(`sidebar-day-stats-${currentDay}`);
             if (sidebarDayEl) {
                 const km = activeDayStats.bikeDist / 1000;
-                sidebarDayEl.textContent = `(${km.toFixed(1)} km)`;
+                sidebarDayEl.textContent = `(${km.toFixed(1)} km | ${Math.round(activeDayStats.elevGain)}m)`;
                 sidebarDayEl.className = 'sidebar-day-dist ' + getDistanceColorClass(km);
             }
 
