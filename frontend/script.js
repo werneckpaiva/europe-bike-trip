@@ -800,6 +800,7 @@ async function renderAll() {
     let dayLegs = [];
 
     let allLegs = [];
+    let sleepPoints = [];
 
     for (let i = 0; i < activeRoute.length; i++) {
         const item = activeRoute[i];
@@ -814,6 +815,10 @@ async function renderAll() {
 
             if (dayLegs.length > 0) {
                 allLegs = allLegs.concat(dayLegs);
+                // The last city before a sleep marker is the stop point
+                if (lastCityObj) {
+                    sleepPoints.push({ name: lastCityObj.name, city: lastCityObj });
+                }
                 if ((currentDay - 1) === activeDayIndex) {
                     await renderDayMap(currentDayGroup, dayLegs);
                 }
@@ -935,7 +940,7 @@ async function renderAll() {
         overviewContainer.style.display = 'block';
         overviewContainer.innerHTML = '';
         if (allLegs.length > 0) {
-            await renderDayMap(overviewContainer, allLegs);
+            await renderDayMap(overviewContainer, allLegs, sleepPoints);
         }
     } else {
         overviewContainer.style.display = 'none';
@@ -957,7 +962,7 @@ async function renderAll() {
     }
 }
 
-async function renderDayMap(container, legs) {
+async function renderDayMap(container, legs, sleepPoints = []) {
     const mapWidget = document.createElement('div');
     mapWidget.className = 'map-widget day-map';
     mapWidget.style.height = '400px';
@@ -977,7 +982,9 @@ async function renderDayMap(container, legs) {
         mapTypeId: google.maps.MapTypeId.TERRAIN,
         disableDefaultUI: true,
         zoomControl: true,
-        scrollwheel: false
+        scrollwheel: true,
+        gestureHandling: 'greedy',
+        fullscreenControl: true
     });
 
     const bounds = new google.maps.LatLngBounds();
@@ -1032,6 +1039,30 @@ async function renderDayMap(container, legs) {
                 bounds.extend(steps.end_location);
             }
         }
+    }
+
+    // Render sleep markers if provided (for overview)
+    if (sleepPoints.length > 0) {
+        const { Marker } = await google.maps.importLibrary("marker");
+        sleepPoints.forEach(point => {
+            // We need coordinates. Since we have cached polyline, we can use the end of it
+            if (point.city && point.city.cachedPolyline) {
+                const path = encoding.decodePath(point.city.cachedPolyline);
+                new Marker({
+                    position: path[path.length - 1],
+                    map: map,
+                    title: `Sleep: ${point.name}`,
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        fillColor: '#818cf8',
+                        fillOpacity: 1,
+                        strokeWeight: 2,
+                        strokeColor: '#ffffff',
+                        scale: 6
+                    }
+                });
+            }
+        });
     }
 
     if (!bounds.isEmpty()) {
