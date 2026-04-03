@@ -163,6 +163,19 @@ header p {
     background: rgba(255, 255, 255, 0.08);
 }
 
+.day-header-sidebar.dragging-day {
+    opacity: 0.4;
+    background: rgba(56, 189, 248, 0.2);
+}
+
+.day-header-sidebar.over-top-day {
+    border-top: 2px solid var(--accent-color);
+}
+
+.day-header-sidebar.over-bottom-day {
+    border-bottom: 2px solid var(--accent-color);
+}
+
 .caret {
     font-size: 0.7rem;
     color: var(--text-secondary);

@@ -120,6 +120,15 @@ function initSidebar() {
         // Day Header
         const dayHeader = document.createElement('div');
         dayHeader.className = 'day-header-sidebar';
+        dayHeader.draggable = true;
+        dayHeader.dataset.dayIndex = dayIndex;
+        
+        dayHeader.addEventListener('dragstart', handleDayDragStart);
+        dayHeader.addEventListener('dragover', handleDayDragOver);
+        dayHeader.addEventListener('drop', handleDayDrop);
+        dayHeader.addEventListener('dragleave', handleDayDragLeave);
+        dayHeader.addEventListener('dragend', handleDayDragEnd);
+
         dayHeader.onclick = () => {
             activeDayIndex = dayIndex;
             initSidebar();
@@ -168,7 +177,8 @@ function initSidebar() {
         delDayBtn.className = 'control-btn delete';
         delDayBtn.innerHTML = '✕';
         delDayBtn.title = 'Delete Day';
-        delDayBtn.onclick = () => {
+        delDayBtn.onclick = (e) => {
+            e.stopPropagation();
             if (confirm('Delete this entire day and its cities?')) {
                 days.splice(dayIndex, 1);
                 saveData();
@@ -177,7 +187,19 @@ function initSidebar() {
             }
         };
         
-        dayHeader.append(caret, dayCheckbox, title, delDayBtn);
+        const addDayAfterBtn = document.createElement('button');
+        addDayAfterBtn.className = 'control-btn add-after';
+        addDayAfterBtn.innerHTML = '+📅';
+        addDayAfterBtn.title = 'Add New Day After';
+        addDayAfterBtn.onclick = (e) => {
+            e.stopPropagation();
+            const id = Date.now();
+            days.splice(dayIndex + 1, 0, { id: `day_${id}`, collapsed: false, cities: [], night_type: 'warmshowers' });
+            saveData();
+            initSidebar();
+        };
+        
+        dayHeader.append(caret, dayCheckbox, title, addDayAfterBtn, delDayBtn);
         dayContainer.appendChild(dayHeader);
         
         const contentDiv = document.createElement('div');
@@ -442,6 +464,7 @@ function handleDragStart(e) {
     };
     this.classList.add('dragging');
     e.dataTransfer.effectAllowed = 'move';
+    e.stopPropagation();
 }
 
 function handleDragOver(e) {
@@ -464,6 +487,7 @@ function handleDragLeave(e) {
 
 function handleDrop(e) {
     e.preventDefault();
+    e.stopPropagation();
     if (!draggedObj) return;
 
     const targetDayIndex = parseInt(this.dataset.dayIndex);
@@ -492,6 +516,7 @@ function handleDrop(e) {
     }
     
     this.classList.remove('over-top', 'over-bottom');
+    draggedObj = null;
 }
 
 function handleDragEnd(e) {
@@ -500,6 +525,76 @@ function handleDragEnd(e) {
         item.classList.remove('over-top', 'over-bottom');
     });
     draggedObj = null;
+}
+
+let draggedDayIndex = null;
+
+function handleDayDragStart(e) {
+    draggedDayIndex = parseInt(this.dataset.dayIndex);
+    this.classList.add('dragging-day');
+    e.dataTransfer.effectAllowed = 'move';
+    e.stopPropagation();
+}
+
+function handleDayDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = this.getBoundingClientRect();
+    const midPoint = rect.top + rect.height / 2;
+    this.classList.remove('over-top-day', 'over-bottom-day');
+    if (e.clientY < midPoint) {
+        this.classList.add('over-top-day');
+    } else {
+        this.classList.add('over-bottom-day');
+    }
+}
+
+function handleDayDragLeave(e) {
+    this.classList.remove('over-top-day', 'over-bottom-day');
+}
+
+function handleDayDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (draggedDayIndex === null) return;
+    
+    let targetDayIndex = parseInt(this.dataset.dayIndex);
+    const rect = this.getBoundingClientRect();
+    const midPoint = rect.top + rect.height / 2;
+    const insertAfter = e.clientY >= midPoint;
+    
+    let toIndex = insertAfter ? targetDayIndex + 1 : targetDayIndex;
+    if (draggedDayIndex < toIndex) {
+        toIndex--; 
+    }
+    
+    if (draggedDayIndex !== toIndex) {
+        const item = days.splice(draggedDayIndex, 1)[0];
+        days.splice(toIndex, 0, item);
+        
+        if (activeDayIndex === draggedDayIndex) {
+            activeDayIndex = toIndex;
+        } else if (activeDayIndex > draggedDayIndex && activeDayIndex <= toIndex) {
+            activeDayIndex--;
+        } else if (activeDayIndex < draggedDayIndex && activeDayIndex >= toIndex) {
+            activeDayIndex++;
+        }
+        
+        saveData();
+        initSidebar();
+        renderAll();
+    }
+    
+    this.classList.remove('over-top-day', 'over-bottom-day');
+    draggedDayIndex = null;
+}
+
+function handleDayDragEnd(e) {
+    this.classList.remove('dragging-day');
+    document.querySelectorAll('.day-header-sidebar').forEach(item => {
+        item.classList.remove('over-top-day', 'over-bottom-day');
+    });
+    draggedDayIndex = null;
 }
 
 function addNewDay() {
