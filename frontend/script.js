@@ -168,12 +168,21 @@ function initSidebar() {
         dayCheckbox.onclick = (e) => {
             e.stopPropagation();
             const isChecked = e.target.checked;
+            const allCitiesOrdered = days.map(d => d.cities).flat().map(c => c.name);
+            
             if (isChecked) {
-                const flatRoute = days.map(d => d.cities).flat().map(c => c.name);
-                selectedCities = flatRoute.filter(c => selectedCities.includes(c) || dayCities.includes(c));
+                // Add all cities of this day to the selection
+                dayCities.forEach(name => {
+                    if (!selectedCities.includes(name)) selectedCities.push(name);
+                });
             } else {
+                // Remove all cities of this day from selection
                 selectedCities = selectedCities.filter(name => !dayCities.includes(name));
             }
+
+            // Always re-sort selectedCities based on the actual global 'days' order
+            selectedCities = allCitiesOrdered.filter(name => selectedCities.includes(name));
+
             saveData();
             initSidebar();
             renderAll();
