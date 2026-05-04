@@ -1,7 +1,9 @@
-// Data management
 let days = [];
 let selectedCities = []; // Store names of selected cities
 let activeDayIndex = 'all'; // State for which day is currently showing ('all' for whole trip)
+
+let projects = [];
+let currentProjectId = null;
 
 const DEFAULT_CITIES = [
     "London (UK)", "Harwich (UK)", "Hook of Holland (NL)", "Nijmegen (NL)",
@@ -40,51 +42,66 @@ function migrateToDays(flatList) {
 
 async function loadData() {
     try {
-        const response = await fetch('/api/config');
-        if (response.ok) {
-            const data = await response.json();
-            if (data.cities && data.cities.length > 0) {
-                if (data.cities[0] && (data.cities[0].is_sleep !== undefined || data.cities[0].cities === undefined)) {
-                    days = migrateToDays(data.cities);
-                } else {
-                    days = data.cities; 
+        // First load projects
+        const projResponse = await fetch('/api/projects');
+        if (projResponse.ok) {
+            projects = await projResponse.json();
+            renderProjectSelector();
+            
+            // Default to first project if none selected
+            if (currentProjectId === null && projects.length > 0) {
+                currentProjectId = projects[0].id;
+                document.getElementById('project-select').value = currentProjectId;
+            }
+        }
+
+        if (currentProjectId !== null) {
+            const response = await fetch(`/api/projects/${currentProjectId}/route`);
+            if (response.ok) {
+                const data = await response.json();
+                if (data.cities && (data.cities.length > 0 || Array.isArray(data.cities))) {
+                    if (data.cities.length > 0 && data.cities[0] && (data.cities[0].is_sleep !== undefined || data.cities[0].cities === undefined)) {
+                        days = migrateToDays(data.cities);
+                    } else {
+                        days = data.cities || []; 
+                    }
+                    selectedCities = data.selected_cities || [];
+                    return;
                 }
-                selectedCities = data.selected_cities || [];
-                return;
             }
         }
     } catch (e) {
-        console.warn('Failed to load config from server', e);
-    }
-    
-    // Fallback if no server data or error
-    days = [];
-    let currentDayCities = [];
-    let defaultCitiesMap = DEFAULT_CITIES.map(name => ({name, transport: 'bike'}));
-    
-    defaultCitiesMap.forEach((city, i) => {
-        currentDayCities.push(city);
-        if (i > 0) {
+        console.warn('Failed to load data from server', e);
+        
+        // Fallback if no server data or error
+        days = [];
+        let currentDayCities = [];
+        let defaultCitiesMap = DEFAULT_CITIES.map(name => ({name, transport: 'bike'}));
+        
+        defaultCitiesMap.forEach((city, i) => {
+            currentDayCities.push(city);
+            if (i > 0) {
+                days.push({
+                    id: `day_${Date.now()}_${i}`,
+                    collapsed: false,
+                    cities: currentDayCities,
+                    night_type: 'warmshowers'
+                });
+                currentDayCities = [];
+            }
+        });
+        if (currentDayCities.length > 0) {
             days.push({
-                id: `day_${Date.now()}_${i}`,
+                id: `day_${Date.now()}_end`,
                 collapsed: false,
                 cities: currentDayCities,
                 night_type: 'warmshowers'
             });
-            currentDayCities = [];
         }
-    });
-    if (currentDayCities.length > 0) {
-        days.push({
-            id: `day_${Date.now()}_end`,
-            collapsed: false,
-            cities: currentDayCities,
-            night_type: 'warmshowers'
-        });
+        selectedCities = DEFAULT_CITIES;
     }
-    selectedCities = DEFAULT_CITIES;
     
-    // Ensure at least one day exists
+    // Ensure at least one day exists for any project
     if (days.length === 0) {
         days.push({
             id: `day_${Date.now()}`,
@@ -92,17 +109,145 @@ async function loadData() {
             cities: [],
             night_type: 'warmshowers'
         });
+        selectedCities = [];
     }
 }
 
 function saveData() {
-    fetch('/api/config', {
+    if (currentProjectId === null) return;
+    
+    fetch(`/api/projects/${currentProjectId}/route`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({ cities: days, selected_cities: selectedCities })
     }).catch(e => console.error('Failed to save config to server', e));
+}
+
+function renderProjectSelector() {
+    const select = document.getElementById('project-select');
+    if (!select) return;
+    
+    select.innerHTML = '';
+    projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        if (p.id === currentProjectId) opt.selected = true;
+        select.appendChild(opt);
+    });
+
+    // Update Header Title
+    const currentProject = projects.find(p => p.id === currentProjectId);
+    if (currentProject) {
+        document.getElementById('project-title').textContent = currentProject.name;
+        document.getElementById('project-description').textContent = currentProject.description || 'Tracking the journey';
+        document.title = `${currentProject.name} - Bike Trip Route`;
+    }
+}
+
+async function createNewProject() {
+    openProjectModal('create');
+}
+
+function openProjectModal(mode, projectId = null) {
+    const modal = document.getElementById('project-modal');
+    const title = document.getElementById('modal-title');
+    const nameInput = document.getElementById('modal-project-name');
+    const descInput = document.getElementById('modal-project-desc');
+    const saveBtn = document.getElementById('modal-save');
+    
+    modal.dataset.mode = mode;
+    modal.dataset.projectId = projectId;
+    
+    if (mode === 'create') {
+        title.textContent = 'Create New Trip';
+        nameInput.value = '';
+        descInput.value = '';
+        saveBtn.textContent = 'Save Trip';
+    } else {
+        const project = projects.find(p => p.id === projectId);
+        title.textContent = 'Rename Trip';
+        nameInput.value = project.name;
+        descInput.value = project.description || '';
+        saveBtn.textContent = 'Update Trip';
+    }
+    
+    modal.classList.add('active');
+    nameInput.focus();
+}
+
+function closeProjectModal() {
+    document.getElementById('project-modal').classList.remove('active');
+}
+
+async function handleProjectSave() {
+    const modal = document.getElementById('project-modal');
+    const mode = modal.dataset.mode;
+    const projectId = modal.dataset.projectId;
+    const name = document.getElementById('modal-project-name').value.trim();
+    const description = document.getElementById('modal-project-desc').value.trim();
+    
+    if (!name) return;
+    
+    try {
+        if (mode === 'create') {
+            const response = await fetch('/api/projects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, description })
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                currentProjectId = result.id;
+                days = [];
+                selectedCities = [];
+                activeDayIndex = 'all';
+            }
+        } else {
+            const response = await fetch(`/api/projects/${projectId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, description })
+            });
+        }
+        
+        await loadData();
+        initSidebar();
+        renderAll();
+        closeProjectModal();
+    } catch (e) {
+        console.error('Failed to save project', e);
+    }
+}
+
+async function deleteCurrentProject() {
+    if (currentProjectId === null) return;
+    
+    const project = projects.find(p => p.id === currentProjectId);
+    if (!project) return;
+    
+    if (confirm(`Are you sure you want to delete the trip "${project.name}"? This cannot be undone.`)) {
+        try {
+            const response = await fetch(`/api/projects/${currentProjectId}`, {
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                currentProjectId = null;
+                days = [];
+                selectedCities = [];
+                activeDayIndex = 'all';
+                await loadData();
+                initSidebar();
+                renderAll();
+            }
+        } catch (e) {
+            console.error('Failed to delete project', e);
+        }
+    }
 }
 
 const routeContainer = document.getElementById('route-container');
@@ -198,6 +343,17 @@ function initSidebar() {
         delDayBtn.title = 'Delete Day';
         delDayBtn.onclick = (e) => {
             e.stopPropagation();
+            if (days.length <= 1) {
+                if (confirm('This is the last day. Clear all cities and reset this day?')) {
+                    days[0].cities = [];
+                    days[0].night_type = 'warmshowers';
+                    selectedCities = [];
+                    saveData();
+                    initSidebar();
+                    renderAll();
+                }
+                return;
+            }
             if (confirm('Delete this entire day and its cities?')) {
                 days.splice(dayIndex, 1);
                 saveData();
@@ -1391,6 +1547,50 @@ async function init() {
     await loadData();
     initSidebar();
     
+    const projectSelect = document.getElementById('project-select');
+    if (projectSelect) {
+        projectSelect.onchange = async (e) => {
+            currentProjectId = parseInt(e.target.value);
+            activeDayIndex = 'all';
+            await loadData();
+            initSidebar();
+            renderAll();
+        };
+    }
+
+    const newProjectBtn = document.getElementById('new-project-btn');
+    if (newProjectBtn) {
+        newProjectBtn.onclick = createNewProject;
+    }
+
+    const deleteProjectBtn = document.getElementById('delete-project-btn');
+    if (deleteProjectBtn) {
+        deleteProjectBtn.onclick = deleteCurrentProject;
+    }
+
+    const renameProjectBtn = document.getElementById('rename-project-btn');
+    if (renameProjectBtn) {
+        renameProjectBtn.onclick = () => {
+            if (currentProjectId !== null) {
+                openProjectModal('edit', currentProjectId);
+            }
+        };
+    }
+
+    // Modal listeners
+    const modalSave = document.getElementById('modal-save');
+    if (modalSave) modalSave.onclick = handleProjectSave;
+
+    const modalCancel = document.getElementById('modal-cancel');
+    if (modalCancel) modalCancel.onclick = closeProjectModal;
+
+    const modal = document.getElementById('project-modal');
+    if (modal) {
+        modal.onclick = (e) => {
+            if (e.target === modal) closeProjectModal();
+        };
+    }
+
     const showWholeTripBtn = document.getElementById('show-whole-trip');
     if (showWholeTripBtn) {
         if (activeDayIndex === 'all') {

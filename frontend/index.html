@@ -13,7 +13,21 @@
 <body>
     <div class="app-container">
         <aside class="sidebar">
-            <h2>Select Stops</h2>
+            <div class="project-header">
+                <h2>Trips</h2>
+                <div class="project-header-actions">
+                    <button id="delete-project-btn" class="action-btn" title="Delete Current Trip">🗑️</button>
+                    <button id="rename-project-btn" class="action-btn" title="Rename Current Trip">✎</button>
+                    <button id="new-project-btn" class="action-btn" title="Create New Trip">+</button>
+                </div>
+            </div>
+            
+            <div class="project-selector-container">
+                <select id="project-select" class="project-select">
+                    <!-- Project options will be injected here -->
+                </select>
+            </div>
+
             <div class="selection-actions">
                 <button id="show-whole-trip" class="action-btn" style="width: 100%;">Show Whole Trip</button>
             </div>
@@ -27,8 +41,8 @@
 
         <main class="content-area">
             <header>
-                <h1>EuroVelo Adventure</h1>
-                <p>Tracking the journey across Europe</p>
+                <h1 id="project-title">Bike Trip</h1>
+                <p id="project-description">Tracking the journey</p>
             </header>
 
             <div id="stats-bar" class="stats-bar">
@@ -82,6 +96,27 @@
         v: "weekly",
       });
     </script>
+    <!-- Project Modal -->
+    <div id="project-modal" class="modal">
+        <div class="modal-content">
+            <h2 id="modal-title">Create New Trip</h2>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="modal-project-name">Trip Name</label>
+                    <input type="text" id="modal-project-name" placeholder="e.g. Summer in the Alps">
+                </div>
+                <div class="form-group">
+                    <label for="modal-project-desc">Description (optional)</label>
+                    <textarea id="modal-project-desc" placeholder="A short description of your journey..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="modal-cancel" class="action-btn">Cancel</button>
+                <button id="modal-save" class="action-btn primary">Save Trip</button>
+            </div>
+        </div>
+    </div>
+
     <script src="script.js"></script>
 </body>
 </html>

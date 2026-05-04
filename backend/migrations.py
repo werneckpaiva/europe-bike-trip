@@ -54,14 +54,51 @@ def migrate_v1_flat_cities_to_days(db):
     db.save_config(new_days, config.get('selected_cities', []))
     logger.info("Migration v1 'flat_cities_to_days' applied successfully.")
 
+def migrate_v2_initialize_projects(db):
+    """
+    Migration Version 2:
+    Initializes the projects table and creates a default project if existing
+    data is found in the config table but no projects exist.
+    """
+    with db._get_connection() as conn:
+        cursor = conn.cursor()
+        
+        # Check if project with ID 1 already exists
+        cursor.execute('SELECT COUNT(*) FROM projects WHERE id = 1')
+        project_count = cursor.fetchone()[0]
+        
+        if project_count > 0:
+            logger.info("Default project already exists. Skipping migration.")
+            return
+
+        # Check if we have existing config data
+        cursor.execute('SELECT COUNT(*) FROM config WHERE id = 1')
+        config_count = cursor.fetchone()[0]
+        
+        if config_count > 0:
+            logger.info("Existing trip data found. Creating default project 'First trip'...")
+            cursor.execute('''
+                INSERT INTO projects (id, name, description) 
+                VALUES (?, ?, ?)
+            ''', (1, 'First trip', 'Automatically created from existing data'))
+            conn.commit()
+            logger.info("Default project 'First trip' created successfully.")
+        else:
+            logger.info("No existing trip data. Creating initial project 'First trip'...")
+            db.create_project("First trip", "My first bike trip project")
+            logger.info("Initial project created successfully.")
+
 # List of migrations to run in order.
-# Each migration should be entirely idempotent and safe to run multiple times,
-# but tracking allows skipping and standardizing upgrades.
 MIGRATIONS_LIST = [
     {
         "version": 1,
         "name": "flat_cities_to_days",
         "func": migrate_v1_flat_cities_to_days
+    },
+    {
+        "version": 2,
+        "name": "initialize_projects",
+        "func": migrate_v2_initialize_projects
     }
 ]
 

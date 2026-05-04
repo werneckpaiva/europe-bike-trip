@@ -17,5 +17,8 @@ ENV DB_PATH=/data/pedal.db
 # Set PYTHONPATH so gunicorn can find backend.app
 ENV PYTHONPATH=/app
 
-# Command to run the application using gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "backend.app:app"]
+# Make entrypoint script executable
+RUN chmod +x docker-entrypoint.sh
+
+# Use the entrypoint script to run migrations and then start the server
+ENTRYPOINT ["./docker-entrypoint.sh"]

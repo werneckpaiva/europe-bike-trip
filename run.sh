@@ -8,6 +8,9 @@ if [ -f .env ]; then
     export $(grep -v '^#' .env | xargs)
 fi
 
+echo "Applying database migrations..."
+./venv/bin/python3 -m backend.run_migrations
+
 echo "Starting Pedal Web Server via backend/app.py..."
 # Run the proper python application
 ./venv/bin/python3 -m backend.app
