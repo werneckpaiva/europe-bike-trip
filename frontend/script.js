@@ -408,7 +408,14 @@ function initSidebar() {
             e.stopPropagation();
             
             if (draggedObj.dayIndex !== targetDayIndex) {
-                const item = days[draggedObj.dayIndex].cities.splice(draggedObj.cityIndex, 1)[0];
+                const item = days[draggedObj.dayIndex].cities[draggedObj.cityIndex];
+                if (isSequentialDuplicate(item.name, targetDayIndex, 0, draggedObj.dayIndex, draggedObj.cityIndex)) {
+                    alert(`Cannot move "${item.name}" adjacent to another city with the same name.`);
+                    contentDiv.classList.remove('over-day-content');
+                    draggedObj = null;
+                    return;
+                }
+                days[draggedObj.dayIndex].cities.splice(draggedObj.cityIndex, 1);
                 days[targetDayIndex].cities.push(item);
                 saveData();
                 initSidebar();
@@ -747,7 +754,14 @@ function handleDrop(e) {
     }
     
     if (draggedObj.dayIndex !== targetDayIndex || draggedObj.cityIndex !== toCityIndex) {
-        const item = days[draggedObj.dayIndex].cities.splice(draggedObj.cityIndex, 1)[0];
+        const item = days[draggedObj.dayIndex].cities[draggedObj.cityIndex];
+        if (isSequentialDuplicate(item.name, targetDayIndex, toCityIndex, draggedObj.dayIndex, draggedObj.cityIndex)) {
+            alert(`Cannot move "${item.name}" adjacent to another city with the same name.`);
+            this.classList.remove('over-top', 'over-bottom');
+            draggedObj = null;
+            return;
+        }
+        days[draggedObj.dayIndex].cities.splice(draggedObj.cityIndex, 1);
         days[targetDayIndex].cities.splice(toCityIndex, 0, item);
         saveData();
         initSidebar();
@@ -797,7 +811,6 @@ function handleDayDrop(e) {
     if (draggedDayIndex === null) return; // Prevent city drop
     e.preventDefault();
     e.stopPropagation();
-    if (draggedDayIndex === null) return;
     
     let targetDayIndex = parseInt(this.dataset.dayIndex);
     const rect = this.getBoundingClientRect();
@@ -810,6 +823,26 @@ function handleDayDrop(e) {
     }
     
     if (draggedDayIndex !== toIndex) {
+        const simulatedDays = days.map(d => ({ ...d, cities: [...d.cities] }));
+        const movedDay = simulatedDays.splice(draggedDayIndex, 1)[0];
+        simulatedDays.splice(toIndex, 0, movedDay);
+
+        const simulatedFlat = simulatedDays.flatMap(d => d.cities);
+        let hasSequentialDuplicate = false;
+        for (let i = 0; i < simulatedFlat.length - 1; i++) {
+            if (simulatedFlat[i].name === simulatedFlat[i + 1].name) {
+                hasSequentialDuplicate = true;
+                break;
+            }
+        }
+
+        if (hasSequentialDuplicate) {
+            alert('Reordering days would place identical cities adjacent to each other.');
+            this.classList.remove('over-top-day', 'over-bottom-day');
+            draggedDayIndex = null;
+            return;
+        }
+
         const item = days.splice(draggedDayIndex, 1)[0];
         days.splice(toIndex, 0, item);
         
