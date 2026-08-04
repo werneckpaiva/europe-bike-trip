@@ -498,9 +498,8 @@ function initSidebar() {
                     const newVal = editInput.value.trim();
                     if (newVal && newVal !== cityObj.name) {
                         const oldName = cityObj.name;
-                        // Check if we already have a city with the same name anywhere
-                        const exists = days.some(d => d.cities.some(c => c.name === newVal));
-                        if (exists) {
+                        if (isSequentialDuplicate(newVal, dayIndex, cityIndex, dayIndex, cityIndex)) {
+                            alert(`Cannot rename to "${newVal}" because it is adjacent to another "${newVal}".`);
                             editInput.replaceWith(label);
                             return;
                         }
@@ -656,16 +655,43 @@ function showInlineAddCity(dayIndex, cityIndex, parentItem) {
     input.focus();
 }
 
-function addCityAt(dayIndex, insertIndex, name) {
-    const exists = days.some(d => d.cities.some(c => c.name === name));
-    if (name && !exists) {
-        const newCity = { name: name, transport: 'bike' };
-        days[dayIndex].cities.splice(insertIndex, 0, newCity);
-        selectedCities.push(name);
-        saveData();
-        initSidebar();
-        renderAll();
+function isSequentialDuplicate(cityName, targetDayIndex, targetCityIndex, ignoreDayIndex = null, ignoreCityIndex = null) {
+    const flatCities = [];
+    days.forEach((day, dIdx) => {
+        day.cities.forEach((city, cIdx) => {
+            if (ignoreDayIndex === dIdx && ignoreCityIndex === cIdx) return;
+            flatCities.push({ name: city.name, dayIndex: dIdx, cityIndex: cIdx });
+        });
+    });
+
+    let insertFlatIndex = 0;
+    for (let i = 0; i < flatCities.length; i++) {
+        const item = flatCities[i];
+        if (item.dayIndex < targetDayIndex || (item.dayIndex === targetDayIndex && item.cityIndex < targetCityIndex)) {
+            insertFlatIndex = i + 1;
+        }
     }
+
+    const prevCity = insertFlatIndex > 0 ? flatCities[insertFlatIndex - 1] : null;
+    const nextCity = insertFlatIndex < flatCities.length ? flatCities[insertFlatIndex] : null;
+
+    return (prevCity && prevCity.name === cityName) || (nextCity && nextCity.name === cityName);
+}
+
+function addCityAt(dayIndex, insertIndex, name) {
+    if (!name) return;
+    if (isSequentialDuplicate(name, dayIndex, insertIndex)) {
+        alert(`Cannot add "${name}" adjacent to another city with the same name.`);
+        return;
+    }
+    const newCity = { name: name, transport: 'bike' };
+    days[dayIndex].cities.splice(insertIndex, 0, newCity);
+    if (!selectedCities.includes(name)) {
+        selectedCities.push(name);
+    }
+    saveData();
+    initSidebar();
+    renderAll();
 }
 
 let draggedObj = null;
